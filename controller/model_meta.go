@@ -160,6 +160,19 @@ func DeleteModelMeta(c *gin.Context) {
 	common.ApiSuccess(c, nil)
 }
 
+// DeleteOrphanedModels 删除孤立模型（未绑定任何渠道的模型）
+func DeleteOrphanedModels(c *gin.Context) {
+	deleted, err := model.DeleteOrphanedModels()
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	if deleted > 0 {
+		model.RefreshPricing()
+	}
+	common.ApiSuccess(c, gin.H{"deleted": deleted})
+}
+
 // enrichModels 批量填充附加信息：端点、渠道、分组、计费类型，避免 N+1 查询
 func enrichModels(models []*model.Model) {
 	if len(models) == 0 {
