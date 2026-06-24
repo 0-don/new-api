@@ -64,10 +64,16 @@ var alwaysSkipRetryCodes = map[types.ErrorCode]struct{}{
 	"context_too_long":        {},
 	"request_too_large":       {},
 	// Local/user quota exhaustion; never an upstream/channel fault.
-	"insufficient_user_quota":        {},
-	"insufficient_quota":             {},
-	"local:insufficient_quota":       {},
-	"pre_consume_token_quota_failed": {},
+	"insufficient_user_quota":  {},
+	"insufficient_quota":       {},
+	"local:insufficient_quota": {},
+	// NOTE: "pre_consume_token_quota_failed" is intentionally NOT listed. The local
+	// pre-consume failures (billing_session.go, pre_consume_quota.go) already attach
+	// ErrOptionWithSkipRetry() per-error, so they skip retry via IsSkipRetryError
+	// before this map is consulted. Listing the bare code here ALSO matched the
+	// identical code emitted by an upstream reseller (e.g. cent) when OUR account
+	// there is short of balance, which is a per-channel transient fault that MUST
+	// fail over to a sibling channel. Keeping it out lets that case retry.
 }
 
 func AutomaticDisableStatusCodesToString() string {
