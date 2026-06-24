@@ -382,6 +382,11 @@ func shouldRetry(c *gin.Context, openaiErr *types.NewAPIError, retryTimes int) b
 	if types.IsSkipRetryError(openaiErr) {
 		return false
 	}
+	// Upstream 400 = malformed request; retrying other channels yields the same
+	// rejection. Fail fast, never failover.
+	if types.IsDeterministicUpstreamError(openaiErr) {
+		return false
+	}
 	if retryTimes <= 0 {
 		return false
 	}

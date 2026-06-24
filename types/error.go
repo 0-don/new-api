@@ -385,6 +385,46 @@ func IsSkipRetryError(err *NewAPIError) bool {
 	return err.skipRetry
 }
 
+// deterministicUpstreamStatusCodes are HTTP statuses that always indicate a
+// request-side fault (malformed payload, invalid input, or content blocked by
+// policy) rather than a per-channel transient failure. The SAME request fails
+// identically on every channel, so retrying the pool only wastes time and the
+// status code, when configured as a disable trigger, would auto-ban healthy
+// channels for a bad client request.
+//
+//   - 400 Bad Request          : malformed/invalid argument (e.g. Gemini INVALID_ARGUMENT)
+//   - 415 Unsupported Media Type: payload format the model cannot accept
+//   - 422 Unprocessable Entity  : input validation failure
+//   - 451 Unavailable For Legal : content blocked by upstream policy/moderation
+//
+// Notably EXCLUDED: 404 (a sibling channel may actually host the model, so
+// failover is desirable), 413 (the TPM rate-limit variant is transient; the
+// genuinely-oversized variant is already caught by alwaysSkipRetryCodes), and
+// 429/5xx (transient by definition).
+var deterministicUpstreamStatusCodes = map[int]struct{}{
+	http.StatusBadRequest:                 {}, // 400
+	http.StatusUnsupportedMediaType:       {}, // 415
+	http.StatusUnprocessableEntity:        {}, // 422
+	http.StatusUnavailableForLegalReasons: {}, // 451
+}
+
+// IsDeterministicUpstreamError reports whether the error is an upstream-origin
+// request-side fault (see deterministicUpstreamStatusCodes). These must never
+// trigger failover or channel auto-disable. Local new_api_error responses (our
+// own validation) are excluded since they never reached an upstream. This is a
+// safety net for upstreams whose error code does not normalize into
+// alwaysSkipRetryCodes.
+func IsDeterministicUpstreamError(err *NewAPIError) bool {
+	if err == nil {
+		return false
+	}
+	if err.errorType == ErrorTypeNewAPIError {
+		return false
+	}
+	_, ok := deterministicUpstreamStatusCodes[err.StatusCode]
+	return ok
+}
+
 func ErrOptionWithSkipRetry() NewAPIErrorOptions {
 	return func(e *NewAPIError) {
 		e.skipRetry = true

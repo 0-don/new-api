@@ -1,8 +1,8 @@
 package service
 
 import (
-	"github.com/QuantumNous/new-api/i18n"
 	"fmt"
+	"github.com/QuantumNous/new-api/i18n"
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
@@ -68,6 +68,13 @@ func ShouldDisableChannel(err *types.NewAPIError) bool {
 	// etc.) are deterministic, not per-channel faults. Skipping retry without
 	// skipping disable would still auto-ban a healthy channel on a bad request.
 	if operation_setting.IsAlwaysSkipRetryCode(err.GetErrorCode()) {
+		return false
+	}
+	// Upstream 400 (malformed/invalid request) is a request-side fault, not the
+	// channel's. Never auto-ban a healthy channel for a bad client request, even
+	// when 400 is configured in the disable status-code ranges and the upstream's
+	// error code did not normalize into alwaysSkipRetryCodes.
+	if types.IsDeterministicUpstreamError(err) {
 		return false
 	}
 	if operation_setting.ShouldDisableByStatusCode(err.StatusCode) {

@@ -67,6 +67,13 @@ var alwaysSkipRetryCodes = map[types.ErrorCode]struct{}{
 	"insufficient_user_quota":  {},
 	"insufficient_quota":       {},
 	"local:insufficient_quota": {},
+	// Local request-build failures (we could not convert/marshal the request for
+	// this model, e.g. "model does not support image generation", AWS/volcengine
+	// request encode failures). Deterministic: every channel of the model fails
+	// identically, so do not retry the pool. Most emit ErrOptionWithSkipRetry()
+	// per-site already; listing them here is the safety net for any that do not.
+	"convert_request_failed": {},
+	"bad_request_body":       {},
 	// NOTE: "pre_consume_token_quota_failed" is intentionally NOT listed. The local
 	// pre-consume failures (billing_session.go, pre_consume_quota.go) already attach
 	// ErrOptionWithSkipRetry() per-error, so they skip retry via IsSkipRetryError
