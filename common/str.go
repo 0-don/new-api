@@ -33,6 +33,47 @@ func LocalLogPreview(content string) string {
 	return fmt.Sprintf("%s... [truncated, original_length=%d, limit=%d]", content[:LocalLogContentLimit], len(content), LocalLogContentLimit)
 }
 
+// dataUriBase64Pattern matches `data:<mime>;base64,<payload>` inline media.
+// Keeps the mime so the log still says WHAT it was, drops the payload bytes.
+var dataUriBase64Pattern = regexp.MustCompile(`data:([\w.+-]+/[\w.+-]+)?;base64,[A-Za-z0-9+/=]+`)
+
+// bareBase64Pattern matches long standalone base64 runs (>=512 chars) that are
+// not part of a data: URI, e.g. a raw `"b64_json":"<...>"` image payload.
+var bareBase64Pattern = regexp.MustCompile(`[A-Za-z0-9+/]{512,}={0,2}`)
+
+const debugBodyLimit = 4096
+
+// ElideBase64 replaces inline base64 media payloads with a short
+// `[base64 <mime> elided, N bytes]` marker, preserving the surrounding JSON and
+// the mime/size metadata. A 500KB base64 image becomes a one-line note while the
+// request/response shape stays readable and greppable.
+func ElideBase64(content string) string {
+	content = dataUriBase64Pattern.ReplaceAllStringFunc(content, func(m string) string {
+		idx := strings.Index(m, "base64,")
+		mime := strings.TrimSuffix(strings.TrimPrefix(m[:idx], "data:"), ";")
+		if mime == "" {
+			mime = "unknown"
+		}
+		return fmt.Sprintf("data:%s;base64,[elided %d bytes]", mime, len(m)-idx-7)
+	})
+	content = bareBase64Pattern.ReplaceAllStringFunc(content, func(m string) string {
+		return fmt.Sprintf("[base64 elided, %d bytes]", len(m))
+	})
+	return content
+}
+
+// DebugBodyPreview sanitizes a request/response body for DEBUG logging: it
+// elides base64 media (keeping mime + size) and then caps total length, so the
+// logs stay diagnostic (model, params, message shape) without dumping image
+// bytes or megabyte RP contexts that bloat disk and break grep.
+func DebugBodyPreview(content string) string {
+	content = ElideBase64(content)
+	if len(content) <= debugBodyLimit {
+		return content
+	}
+	return fmt.Sprintf("%s... [truncated, original_length=%d, limit=%d]", content[:debugBodyLimit], len(content), debugBodyLimit)
+}
+
 func GetStringIfEmpty(str string, defaultValue string) string {
 	if str == "" {
 		return defaultValue

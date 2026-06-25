@@ -198,7 +198,7 @@ func TextHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *types
 			}
 		}
 
-		logger.LogDebug(c, "text request body: %s", jsonData)
+		logger.LogDebug(c, "text request body: %s", common.ElideBase64(string(jsonData)))
 
 		// Guard against forwarding a chat-completions request with no messages. A
 		// malformed/empty messages array is the client's fault and deterministic,
