@@ -48,8 +48,8 @@ services:
       - GIN_MODE=release
       - ENABLE_OPENAPI=true
       - DEFAULT_LANGUAGE=en # Backend language: en, zh-CN, zh-TW, fr, ja, ru, vi
-      - RELAY_TIMEOUT=600
-      - STREAMING_TIMEOUT=600
+      - RELAY_TIMEOUT=1800
+      - STREAMING_TIMEOUT=1800
       - GLOBAL_API_RATE_LIMIT_ENABLE=false
       - SEARCH_RATE_LIMIT_ENABLE=false
       - CRITICAL_RATE_LIMIT=10000
