@@ -48,7 +48,10 @@ services:
       - GIN_MODE=release
       - ENABLE_OPENAPI=true
       - DEFAULT_LANGUAGE=en # Backend language: en, zh-CN, zh-TW, fr, ja, ru, vi
-      - RELAY_TIMEOUT=1800
+      # 0 = no total wall-clock cap; long streamed responses are bounded by the
+      # idle reaper (STREAMING_TIMEOUT) instead, so healthy long reasoning never gets cut.
+      # STREAMING_TIMEOUT=1800: only reap a stream silent for 30 min between tokens.
+      - RELAY_TIMEOUT=0
       - STREAMING_TIMEOUT=1800
       - GLOBAL_API_RATE_LIMIT_ENABLE=false
       - SEARCH_RATE_LIMIT_ENABLE=false
