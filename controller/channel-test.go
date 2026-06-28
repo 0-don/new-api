@@ -903,9 +903,16 @@ func performChannelTests(ctx context.Context, channels []*model.Channel, testUse
 		if channel.Status == common.ChannelStatusManuallyDisabled {
 			continue
 		}
+		// Skip channels whose only models are image/video/audio (non-text). Testing
+		// them just spams bad-response errors every scheduled run. Free embedding/
+		// image-only channels still get a testable model via pickAutoTestModel.
+		testModel := pickAutoTestModel(channel)
+		if testModel == "" {
+			continue
+		}
 		isChannelEnabled := channel.Status == common.ChannelStatusEnabled
 		tik := time.Now()
-		result := testChannel(ctx, channel, testUserID, "", "", shouldUseStreamForAutomaticChannelTest(channel))
+		result := testChannel(ctx, channel, testUserID, testModel, "", shouldUseStreamForAutomaticChannelTest(channel))
 		tok := time.Now()
 		milliseconds := tok.Sub(tik).Milliseconds()
 		if ctx != nil && ctx.Err() != nil {
@@ -1207,4 +1214,102 @@ func reconcileIncidents(rows []*model.ModelStatusPing, timestamp int64) {
 			}
 		}
 	}
+}
+
+// Model-type filtering for automatic channel tests: skip image/video/audio
+// models when picking the test model so disabled non-text channels are not
+// hammered with bad-response errors on every scheduled run.
+var nonTextModelKeywords = []string{
+	"image", "dall-e", "flux", "seedream", "stable-diffusion", "imagen", "recraft", "ideogram", "midjourney",
+	"video", "sora", "kling", "veo", "vidu", "jimeng", "-i2v", "-t2v", "-i2i", "-t2i", "-i2v-", "-t2v-",
+	"tts", "whisper", "audio", "speech", "transcribe", "suno", "music",
+}
+
+// Embedding models testChannel can probe cheaply via /v1/embeddings. Free channels
+// that serve ONLY embeddings would otherwise never be auto-tested (no text model to
+// pick), so dead embedding lanes sat broken. Allow them through for free channels.
+var embeddingModelKeywords = []string{
+	"embedding", "embed", "bge-", "m3e", "voyage", "rerank",
+}
+
+// OpenAI-shaped image-generation models testChannel can probe via /v1/images/generations.
+// Free image lanes (flux/dall-e/gpt-image) are tested when disabled; the upstream image
+// call is the cost, acceptable on a free lane at the scheduled interval.
+var imageGenModelKeywords = []string{
+	"dall-e", "gpt-image", "flux", "seedream", "stable-diffusion", "imagen",
+	"recraft", "ideogram", "sdxl",
+}
+
+func isImageGenModel(modelName string) bool {
+	name := strings.ToLower(modelName)
+	for _, keyword := range imageGenModelKeywords {
+		if strings.Contains(name, keyword) {
+			return true
+		}
+	}
+	return false
+}
+
+func isNonTextModel(modelName string) bool {
+	name := strings.ToLower(modelName)
+	for _, keyword := range nonTextModelKeywords {
+		if strings.Contains(name, keyword) {
+			return true
+		}
+	}
+	return false
+}
+
+func isEmbeddingModel(modelName string) bool {
+	name := strings.ToLower(modelName)
+	for _, keyword := range embeddingModelKeywords {
+		if strings.Contains(name, keyword) {
+			return true
+		}
+	}
+	return false
+}
+
+// A free channel costs nothing per call, so autotest may probe its non-text
+// (embedding) models too. Detected by the ":free" published-name convention or a
+// group whose name carries "free".
+func isFreeChannel(channel *model.Channel) bool {
+	if strings.Contains(strings.ToLower(channel.Group), "free") {
+		return true
+	}
+	for _, m := range channel.GetModels() {
+		if strings.HasSuffix(strings.TrimSpace(strings.ToLower(m)), ":free") {
+			return true
+		}
+	}
+	return false
+}
+
+// pickAutoTestModel returns the model the scheduled autotest should use, or "" to skip the channel
+func pickAutoTestModel(channel *model.Channel) string {
+	if channel.TestModel != nil {
+		testModel := strings.TrimSpace(*channel.TestModel)
+		if testModel != "" && !isNonTextModel(testModel) {
+			return testModel
+		}
+	}
+	for _, m := range channel.GetModels() {
+		m = strings.TrimSpace(m)
+		if m != "" && !isNonTextModel(m) {
+			return m
+		}
+	}
+	// No text model. For FREE channels, fall back to an embedding or image model:
+	// testChannel routes them to /v1/embeddings or /v1/images/generations, so a free
+	// embedding-/image-only lane still gets re-checked (and auto-disabled when dead).
+	// Free = no per-call charge to us. Audio/video stay skipped (no test path).
+	if isFreeChannel(channel) {
+		for _, m := range channel.GetModels() {
+			m = strings.TrimSpace(m)
+			if m != "" && (isEmbeddingModel(m) || isImageGenModel(m)) {
+				return m
+			}
+		}
+	}
+	return ""
 }
