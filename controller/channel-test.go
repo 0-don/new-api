@@ -1004,12 +1004,19 @@ func runChannelTestTask(ctx context.Context, mode string, notify bool, report fu
 }
 
 func selectChannelsForAutomaticTest(channels []*model.Channel, mode string) []*model.Channel {
+	// Either upstream's passive_recovery mode or our AutoTestDisabledChannelsOnly
+	// toggle restricts the scheduled probe to auto-disabled channels, leaving
+	// healthy channels alone (avoids probe-induced 429s and quota burn). The
+	// toggle field survived an upstream merge that rewrote this loop, so honor it
+	// here explicitly.
+	disabledOnly := mode == operation_setting.ChannelTestModePassiveRecovery ||
+		operation_setting.GetMonitorSetting().AutoTestDisabledChannelsOnly
 	selected := make([]*model.Channel, 0, len(channels))
 	for _, channel := range channels {
 		if channel.Status == common.ChannelStatusManuallyDisabled {
 			continue
 		}
-		if mode == operation_setting.ChannelTestModePassiveRecovery && channel.Status != common.ChannelStatusAutoDisabled {
+		if disabledOnly && channel.Status != common.ChannelStatusAutoDisabled {
 			continue
 		}
 		selected = append(selected, channel)
