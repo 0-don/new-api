@@ -2,25 +2,29 @@ package service
 
 import (
 	"github.com/QuantumNous/new-api/dto"
-	"github.com/QuantumNous/new-api/service/openaicompat"
+	"github.com/QuantumNous/new-api/service/relayconvert"
 )
 
 func ChatCompletionsRequestToResponsesRequest(req *dto.GeneralOpenAIRequest) (*dto.OpenAIResponsesRequest, error) {
-	return openaicompat.ChatCompletionsRequestToResponsesRequest(req)
-}
-
-func ResponsesResponseToChatCompletionsResponse(resp *dto.OpenAIResponsesResponse, id string) (*dto.OpenAITextResponse, *dto.Usage, error) {
-	return openaicompat.ResponsesResponseToChatCompletionsResponse(resp, id)
-}
-
-func ExtractOutputTextFromResponses(resp *dto.OpenAIResponsesResponse) string {
-	return openaicompat.ExtractOutputTextFromResponses(resp)
+	return relayconvert.ChatCompletionsRequestToResponsesRequest(req)
 }
 
 func ResponsesRequestToChatCompletionsRequest(req *dto.OpenAIResponsesRequest) (*dto.GeneralOpenAIRequest, error) {
-	return openaicompat.ResponsesRequestToChatCompletionsRequest(req)
+	return relayconvert.ResponsesRequestToChatCompletionsRequest(req)
 }
 
-func ChatCompletionsResponseToResponsesResponse(resp *dto.OpenAITextResponse, model string) (*dto.OpenAIResponsesResponse, error) {
-	return openaicompat.ChatCompletionsResponseToResponsesResponse(resp, model)
+func ChatCompletionsResponseToResponsesResponse(resp *dto.OpenAITextResponse, id string) (*dto.OpenAIResponsesResponse, *dto.Usage, error) {
+	return relayconvert.ChatCompletionsResponseToResponsesResponse(resp, id)
+}
+
+func ResponsesResponseToChatCompletionsResponse(resp *dto.OpenAIResponsesResponse, id string) (*dto.OpenAITextResponse, *dto.Usage, error) {
+	return relayconvert.ResponsesResponseToChatCompletionsResponse(resp, id)
+}
+
+func ResponsesFinishReasonFromStatus(resp *dto.OpenAIResponsesResponse) (string, bool) {
+	return relayconvert.ResponsesFinishReasonFromStatus(resp)
+}
+
+func ExtractOutputTextFromResponses(resp *dto.OpenAIResponsesResponse) string {
+	return relayconvert.ExtractOutputTextFromResponses(resp)
 }

@@ -5,15 +5,9 @@ import (
 	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/relay"
-	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/types"
 	"github.com/go-fuego/fuego"
 )
-
-// UpdateTaskBulk 薄入口，实际轮询逻辑在 service 层
-func UpdateTaskBulk() {
-	service.TaskPollingLoop()
-}
 
 func GetAllTask(c fuego.ContextWithParams[dto.GetAllTaskParams]) (*dto.Response[dto.PageData[*dto.TaskDto]], error) {
 	p, _ := dto.ParseParams[dto.GetAllTaskParams](c)

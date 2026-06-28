@@ -19,15 +19,7 @@ func GetSetup(c fuego.ContextNoBody) (*dto.Response[dto.SetupData], error) {
 		return dto.Ok(setup)
 	}
 	setup.RootInit = model.RootUserExists()
-	if common.UsingMySQL {
-		setup.DatabaseType = "mysql"
-	}
-	if common.UsingPostgreSQL {
-		setup.DatabaseType = "postgres"
-	}
-	if common.UsingSQLite {
-		setup.DatabaseType = "sqlite"
-	}
+	setup.DatabaseType = string(common.MainDatabaseType())
 	return dto.Ok(setup)
 }
 

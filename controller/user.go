@@ -15,6 +15,7 @@ import (
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/service"
+	"github.com/QuantumNous/new-api/service/authz"
 	"github.com/QuantumNous/new-api/setting"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
@@ -24,6 +25,7 @@ import (
 	"github.com/gin-contrib/sessions"
 	"github.com/gin-gonic/gin"
 	"github.com/go-fuego/fuego"
+	"gorm.io/gorm"
 )
 
 // Login uses *gin.Context because setupLogin writes session + JSON directly
@@ -396,6 +398,7 @@ func GetUser(c fuego.ContextNoBody) (*dto.Response[model.User], error) {
 	if !canManageTargetRole(myRole, user.Role) {
 		return dto.Fail[model.User](common.TranslateMessage(dto.GinCtx(c), "user.no_permission_same_level"))
 	}
+	user.AdminPermissions = authz.Capabilities(user.Id, user.Role)
 	return dto.Ok(*user)
 }
 
@@ -490,36 +493,38 @@ func GetSelf(c fuego.ContextNoBody) (*dto.Response[dto.UserSelfData], error) {
 	user.Remark = ""
 
 	permissions := calculateUserPermissions(userRole)
+	permissions["admin_permissions"] = authz.Capabilities(id, userRole)
+
 	userSetting := user.GetSetting()
 
 	data := dto.UserSelfData{
-		Id:              user.Id,
-		Username:        user.Username,
-		DisplayName:     user.DisplayName,
-		Role:            user.Role,
-		Status:          user.Status,
-		Email:           user.Email,
-		GitHubId:        user.GitHubId,
-		DiscordId:       user.DiscordId,
-		OidcId:          user.OidcId,
-		WeChatId:        user.WeChatId,
-		TelegramId:      user.TelegramId,
-		Group:           user.Group,
-		Quota:           user.Quota,
-		UsedQuota:       user.UsedQuota,
-		RequestCount:    user.RequestCount,
-		AffCode:         user.AffCode,
-		AffCount:        user.AffCount,
-		AffQuota:        user.AffQuota,
+		Id:                        user.Id,
+		Username:                  user.Username,
+		DisplayName:               user.DisplayName,
+		Role:                      user.Role,
+		Status:                    user.Status,
+		Email:                     user.Email,
+		GitHubId:                  user.GitHubId,
+		DiscordId:                 user.DiscordId,
+		OidcId:                    user.OidcId,
+		WeChatId:                  user.WeChatId,
+		TelegramId:                user.TelegramId,
+		Group:                     user.Group,
+		Quota:                     user.Quota,
+		UsedQuota:                 user.UsedQuota,
+		RequestCount:              user.RequestCount,
+		AffCode:                   user.AffCode,
+		AffCount:                  user.AffCount,
+		AffQuota:                  user.AffQuota,
 		AffHistoryQuota:           user.AffHistoryQuota,
 		AffCommissionRate:         effectiveCommissionRate(user.ReferralCommissionPercent),
 		AffCommissionMaxRecharges: common.ReferralCommissionMaxRecharges,
 		InviterId:                 user.InviterId,
-		LinuxDOId:       user.LinuxDOId,
-		Setting:         user.Setting,
-		StripeCustomer:  user.StripeCustomer,
-		SidebarModules:  userSetting.SidebarModules,
-		Permissions:     permissions,
+		LinuxDOId:                 user.LinuxDOId,
+		Setting:                   user.Setting,
+		StripeCustomer:            user.StripeCustomer,
+		SidebarModules:            userSetting.SidebarModules,
+		Permissions:               permissions,
 	}
 
 	// Optional join: only when the user actually has per-user grants. Keeps the
@@ -634,6 +639,14 @@ func GetUserModels(c fuego.ContextNoBody) (*dto.Response[[]string], error) {
 		return dto.Fail[[]string](err.Error())
 	}
 	groups := service.GetUserUsableGroups(user.Group)
+	group := dto.GinCtx(c).Query("group")
+	if group != "" {
+		if _, ok := groups[group]; !ok {
+			return dto.Ok([]string{})
+		}
+		return dto.Ok(model.GetGroupEnabledModels(group))
+	}
+
 	var models []string
 	for group := range groups {
 		for _, g := range model.GetGroupEnabledModels(group) {
@@ -667,9 +680,28 @@ func UpdateUser(c fuego.ContextWithBody[model.User]) (dto.MessageResponse, error
 	if !canManageTargetRole(myRole, updatedUser.Role) {
 		return dto.FailMsg(common.TranslateMessage(ginCtx, "user.cannot_create_higher_level"))
 	}
+	if updatedUser.Password == "$I_LOVE_U" {
+		updatedUser.Password = "" // rollback to what it should be
+	}
 	updatePassword := updatedUser.Password != ""
-	if err := updatedUser.Edit(updatePassword); err != nil {
+	authzTouched := false
+	if err := model.DB.Transaction(func(tx *gorm.DB) error {
+		if err := updatedUser.EditWithTx(tx, updatePassword); err != nil {
+			return err
+		}
+		touched, err := updateAdminPermissionsForUserInTx(ginCtx, tx, updatedUser.Id, originUser.Role, updatedUser.AdminPermissions)
+		authzTouched = touched
+		return err
+	}); err != nil {
 		return dto.FailMsg(err.Error())
+	}
+	if authzTouched {
+		if err := authz.ReloadPolicy(); err != nil {
+			return dto.FailMsg(err.Error())
+		}
+	}
+	if err := model.InvalidateUserCache(updatedUser.Id); err != nil {
+		common.SysLog(fmt.Sprintf("failed to invalidate user cache for user %d: %s", updatedUser.Id, err.Error()))
 	}
 	recordManageAuditFor(ginCtx, updatedUser.Id, "user.update", map[string]interface{}{
 		"username": originUser.Username,
@@ -914,15 +946,45 @@ func CreateUser(c fuego.ContextWithBody[model.User]) (dto.MessageResponse, error
 		DisplayName: user.DisplayName,
 		Role:        user.Role,
 	}
-	if err := cleanUser.Insert(0); err != nil {
+	authzTouched := false
+	if err := model.DB.Transaction(func(tx *gorm.DB) error {
+		if err := cleanUser.InsertWithTx(tx, 0); err != nil {
+			return err
+		}
+		touched, err := updateAdminPermissionsForUserInTx(ginCtx, tx, cleanUser.Id, cleanUser.Role, user.AdminPermissions)
+		authzTouched = touched
+		return err
+	}); err != nil {
 		return dto.FailMsg(err.Error())
 	}
+	if authzTouched {
+		if err := authz.ReloadPolicy(); err != nil {
+			return dto.FailMsg(err.Error())
+		}
+	}
+	cleanUser.FinishInsert(0)
 
 	recordManageAuditFor(ginCtx, cleanUser.Id, "user.create", map[string]interface{}{
 		"username": cleanUser.Username,
 		"role":     cleanUser.Role,
 	})
 	return dto.Msg("")
+}
+
+func updateAdminPermissionsForUserInTx(c *gin.Context, tx *gorm.DB, userID int, userRole int, permissions map[string]map[string]bool) (bool, error) {
+	if permissions == nil {
+		if userRole < common.RoleAdminUser && c.GetInt("role") == common.RoleRootUser {
+			return true, authz.ClearUserAuthorizationInTx(tx, userID)
+		}
+		return false, nil
+	}
+	if c.GetInt("role") != common.RoleRootUser {
+		return false, fmt.Errorf("only root can update admin permissions")
+	}
+	if userRole < common.RoleAdminUser {
+		return true, authz.ClearUserAuthorizationInTx(tx, userID)
+	}
+	return true, authz.SetUserPermissionsInTx(tx, userID, permissions)
 }
 
 // ManageUser handles user management actions (enable/disable/delete/promote/demote)
@@ -1045,8 +1107,26 @@ func ManageUser(c fuego.ContextWithBody[dto.ManageRequest]) (*dto.Response[dto.M
 		return dto.Ok(dto.ManageUserData{Role: user.Role, Status: user.Status})
 	}
 
-	if err := user.Update(false); err != nil {
-		return dto.Fail[dto.ManageUserData](err.Error())
+	authzTouched := false
+	if req.Action == "demote" {
+		if err := model.DB.Transaction(func(tx *gorm.DB) error {
+			if err := user.UpdateWithTx(tx, false); err != nil {
+				return err
+			}
+			authzTouched = true
+			return authz.ClearUserAuthorizationInTx(tx, user.Id)
+		}); err != nil {
+			return dto.Fail[dto.ManageUserData](err.Error())
+		}
+		if authzTouched {
+			if err := authz.ReloadPolicy(); err != nil {
+				return dto.Fail[dto.ManageUserData](err.Error())
+			}
+		}
+	} else {
+		if err := user.Update(false); err != nil {
+			return dto.Fail[dto.ManageUserData](err.Error())
+		}
 	}
 	// 禁用 / 角色调整后，强制失效用户缓存与其全部令牌缓存，
 	// 避免在 Redis TTL 过期前仍使用旧状态（尤其是禁用后仍可发起请求的问题）。

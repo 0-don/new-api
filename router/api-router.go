@@ -267,6 +267,8 @@ func SetApiRouter(router *gin.Engine, engine *fuego.Engine) {
 		dto.Get(ratioSync, "/channels", controller.GetSyncableChannels)
 		dto.PostB(ratioSync, "/fetch", controller.FetchUpstreamRatios)
 
+		registerAuthzRoutes(apiRouter)
+
 		// ---- Channel routes (admin) ----
 		channelGroup := apiRouter.Group("/channel", middleware.AdminAuth())
 		ch := dto.NewRouter(engine, channelGroup, "Channel", secDashboard())

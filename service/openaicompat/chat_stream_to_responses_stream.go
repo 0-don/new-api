@@ -28,7 +28,9 @@ type ChatToResponsesStreamState struct {
 
 	NextOutputIndex int
 
-	OutputText       strings.Builder
+	ReasoningOutputIndex int
+	ReasoningText        strings.Builder
+	OutputText           strings.Builder
 	ToolCallArgs     map[string]string
 	ToolCallName     map[string]string
 	ToolCallSent     map[string]bool
@@ -41,9 +43,10 @@ func NewChatToResponsesStreamState(responseID string, createdAt int64, model str
 		ResponseID:          normalizeResponsesID(responseID),
 		CreatedAt:           createdAt,
 		Model:               model,
-		MessageOutputIndex:  -1,
-		MessageContentIndex: 0,
-		NextOutputIndex:     0,
+		MessageOutputIndex:   -1,
+		MessageContentIndex:  0,
+		NextOutputIndex:      0,
+		ReasoningOutputIndex: -1,
 		ToolCallArgs:        make(map[string]string),
 		ToolCallName:        make(map[string]string),
 		ToolCallSent:        make(map[string]bool),
@@ -83,8 +86,13 @@ func (s *ChatToResponsesStreamState) HandleChatChunk(chunk *dto.ChatCompletionsS
 	// Reasoning content (for models that emit reasoning_content)
 	reasoningContent := delta.GetReasoningContent()
 	if reasoningContent != "" {
-		outIndex := 0
+		if s.ReasoningOutputIndex < 0 {
+			s.ReasoningOutputIndex = s.NextOutputIndex
+			s.NextOutputIndex++
+		}
+		outIndex := s.ReasoningOutputIndex
 		summaryIndex := 0
+		s.ReasoningText.WriteString(reasoningContent)
 		events = append(events, dto.ResponsesStreamResponse{
 			Type:         "response.reasoning_summary_text.delta",
 			ResponseID:   s.ResponseID,
@@ -170,6 +178,20 @@ func (s *ChatToResponsesStreamState) FinalEvents(usage *dto.Usage) []dto.Respons
 		events = append(events, s.messageItemDoneEvent(text))
 	}
 
+	// Finalize reasoning content
+	if s.ReasoningOutputIndex >= 0 {
+		outIndex := s.ReasoningOutputIndex
+		summaryIndex := 0
+		events = append(events, dto.ResponsesStreamResponse{
+			Type:         "response.reasoning_summary_text.done",
+			ResponseID:   s.ResponseID,
+			ItemID:       "rs_" + strings.TrimPrefix(s.ResponseID, "resp_"),
+			OutputIndex:  &outIndex,
+			SummaryIndex: &summaryIndex,
+			Text:         s.ReasoningText.String(),
+		})
+	}
+
 	// Finalize tool calls
 	for _, callID := range s.ToolCallOrder {
 		outIndex := s.outputIndexPtr(callID)
@@ -207,7 +229,7 @@ func (s *ChatToResponsesStreamState) FinalEvents(usage *dto.Usage) []dto.Respons
 		ID:        s.ResponseID,
 		Object:    "response",
 		CreatedAt: int(s.CreatedAt),
-		Status:    json.RawMessage(`"completed"`),
+		Status:    []byte(`"completed"`),
 		Model:     s.Model,
 		Output:    output,
 		Usage:     finalUsage,
@@ -239,7 +261,7 @@ func (s *ChatToResponsesStreamState) createdEvent() dto.ResponsesStreamResponse 
 		ID:        s.ResponseID,
 		Object:    "response",
 		CreatedAt: int(s.CreatedAt),
-		Status:    json.RawMessage(`"in_progress"`),
+		Status:    []byte(`"in_progress"`),
 		Model:     s.Model,
 		Output:    []dto.ResponsesOutput{},
 	}
@@ -255,7 +277,7 @@ func (s *ChatToResponsesStreamState) inProgressEvent() dto.ResponsesStreamRespon
 		ID:        s.ResponseID,
 		Object:    "response",
 		CreatedAt: int(s.CreatedAt),
-		Status:    json.RawMessage(`"in_progress"`),
+		Status:    []byte(`"in_progress"`),
 		Model:     s.Model,
 		Output:    []dto.ResponsesOutput{},
 	}

@@ -134,6 +134,7 @@ func TestBuildUpstreamModelUpdateTaskNotificationContent_OmitOverflowDetails(t *
 	}
 
 	content := buildUpstreamModelUpdateTaskNotificationContent(
+		"en",
 		24,
 		12,
 		56,

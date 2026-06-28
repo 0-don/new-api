@@ -3,12 +3,12 @@ package controller
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"time"
 
+	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/logger"
@@ -16,186 +16,227 @@ import (
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting"
 	"github.com/QuantumNous/new-api/setting/system_setting"
+
 	"github.com/go-fuego/fuego"
 )
 
-func UpdateMidjourneyTaskBulk() {
-	//imageModel := "midjourney"
-	ctx := context.TODO()
-	for {
-		time.Sleep(time.Duration(15) * time.Second)
+// midjourneyPollSummary is the result recorded on a midjourney_poll system task
+// row, summarizing one polling pass.
+type midjourneyPollSummary struct {
+	UnfinishedTasks int `json:"unfinished_tasks"`
+	ChannelsScanned int `json:"channels_scanned"`
+	NullTasksFailed int `json:"null_tasks_failed"`
+}
 
-		tasks := model.GetAllUnFinishTasks()
-		if len(tasks) == 0 {
+// runMidjourneyTaskUpdateOnce performs one Midjourney polling pass synchronously.
+// It honors ctx cancellation (the system-task runner cancels it when the lease
+// is lost) and, when report is non-nil, reports progress as (processedChannels,
+// totalChannels) so the system task surfaces a percentage.
+func runMidjourneyTaskUpdateOnce(ctx context.Context, report func(processed, total int)) midjourneyPollSummary {
+	summary := midjourneyPollSummary{}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	tasks := model.GetAllUnFinishTasks()
+	if len(tasks) == 0 {
+		return summary
+	}
+	summary.UnfinishedTasks = len(tasks)
+
+	logger.LogInfo(ctx, fmt.Sprintf("检测到未完成的任务数有: %v", len(tasks)))
+	taskChannelM := make(map[int][]string)
+	taskM := make(map[string]*model.Midjourney)
+	nullTaskIds := make([]int, 0)
+	for _, task := range tasks {
+		if task.MjId == "" {
+			// 统计失败的未完成任务
+			nullTaskIds = append(nullTaskIds, task.Id)
 			continue
 		}
+		taskM[task.MjId] = task
+		taskChannelM[task.ChannelId] = append(taskChannelM[task.ChannelId], task.MjId)
+	}
+	if len(nullTaskIds) > 0 {
+		summary.NullTasksFailed = len(nullTaskIds)
+		err := model.MjBulkUpdateByTaskIds(nullTaskIds, map[string]any{
+			"status":   "FAILURE",
+			"progress": "100%",
+		})
+		if err != nil {
+			logger.LogError(ctx, fmt.Sprintf(i18n.Translate("ctrl.fix_null_mj_id_task_error"), err))
+		} else {
+			logger.LogInfo(ctx, fmt.Sprintf(i18n.Translate("ctrl.fix_null_mj_id_task_success"), nullTaskIds))
+		}
+	}
+	if len(taskChannelM) == 0 {
+		return summary
+	}
 
-		logger.LogInfo(ctx, i18n.Translate("midjourney.detected_unfinished", map[string]any{"Count": len(tasks)}))
-		taskChannelM := make(map[int][]string)
-		taskM := make(map[string]*model.Midjourney)
-		nullTaskIds := make([]int, 0)
-		for _, task := range tasks {
-			if task.MjId == "" {
-				// 统计失败的未完成任务
-				nullTaskIds = append(nullTaskIds, task.Id)
-				continue
-			}
-			taskM[task.MjId] = task
-			taskChannelM[task.ChannelId] = append(taskChannelM[task.ChannelId], task.MjId)
+	totalChannels := len(taskChannelM)
+	processedChannels := 0
+	for channelId, taskIds := range taskChannelM {
+		if ctx != nil && ctx.Err() != nil {
+			break
 		}
-		if len(nullTaskIds) > 0 {
-			err := model.MjBulkUpdateByTaskIds(nullTaskIds, map[string]any{
-				"status":   "FAILURE",
-				"progress": "100%",
-			})
-			if err != nil {
-				logger.LogError(ctx, fmt.Sprintf(i18n.Translate("ctrl.fix_null_mj_id_task_error"), err))
-			} else {
-				logger.LogInfo(ctx, fmt.Sprintf(i18n.Translate("ctrl.fix_null_mj_id_task_success"), nullTaskIds))
-			}
+		if report != nil {
+			report(processedChannels, totalChannels)
 		}
-		if len(taskChannelM) == 0 {
+		processedChannels++
+		summary.ChannelsScanned++
+		logger.LogInfo(ctx, i18n.Translate("midjourney.channel_unfinished", map[string]any{"ChannelId": channelId, "Count": len(taskIds)}))
+		if len(taskIds) == 0 {
 			continue
 		}
-
-		for channelId, taskIds := range taskChannelM {
-			logger.LogInfo(ctx, i18n.Translate("midjourney.channel_unfinished", map[string]any{"ChannelId": channelId, "Count": len(taskIds)}))
-			if len(taskIds) == 0 {
-				continue
-			}
-			midjourneyChannel, err := model.CacheGetChannel(channelId)
-			if err != nil {
-				logger.LogError(ctx, fmt.Sprintf(i18n.Translate("ctrl.cachegetchannel"), err))
-				err := model.MjBulkUpdate(taskIds, map[string]any{
-					"fail_reason": i18n.Translate("midjourney.get_channel_info_failed", map[string]any{"ChannelId": channelId}),
-					"status":      "FAILURE",
-					"progress":    "100%",
-				})
-				if err != nil {
-					logger.LogInfo(ctx, fmt.Sprintf(i18n.Translate("ctrl.updatemidjourneytask_error"), err))
-				}
-				continue
-			}
-			requestUrl := fmt.Sprintf("%s/mj/task/list-by-condition", *midjourneyChannel.BaseURL)
-
-			body, _ := json.Marshal(map[string]any{
-				"ids": taskIds,
+		midjourneyChannel, err := model.CacheGetChannel(channelId)
+		if err != nil {
+			logger.LogError(ctx, fmt.Sprintf(i18n.Translate("ctrl.cachegetchannel"), err))
+			err := model.MjBulkUpdate(taskIds, map[string]any{
+				"fail_reason": i18n.Translate("midjourney.get_channel_info_failed", map[string]any{"ChannelId": channelId}),
+				"status":      "FAILURE",
+				"progress":    "100%",
 			})
-			req, err := http.NewRequest("POST", requestUrl, bytes.NewBuffer(body))
 			if err != nil {
-				logger.LogError(ctx, fmt.Sprintf(i18n.Translate("ctrl.get_task_error"), err))
-				continue
+				logger.LogInfo(ctx, fmt.Sprintf(i18n.Translate("ctrl.updatemidjourneytask_error"), err))
 			}
-			// 设置超时时间
-			timeout := time.Second * 15
-			ctx, cancel := context.WithTimeout(context.Background(), timeout)
-			// 使用带有超时的 context 创建新的请求
-			req = req.WithContext(ctx)
-			req.Header.Set("Content-Type", "application/json")
-			req.Header.Set("mj-api-secret", midjourneyChannel.Key)
-			resp, err := service.GetHttpClient().Do(req)
-			if err != nil {
-				logger.LogError(ctx, fmt.Sprintf(i18n.Translate("ctrl.get_task_do_req_error"), err))
-				continue
-			}
-			if resp.StatusCode != http.StatusOK {
-				logger.LogError(ctx, fmt.Sprintf(i18n.Translate("ctrl.get_task_status_code"), resp.StatusCode))
-				continue
-			}
-			responseBody, err := io.ReadAll(resp.Body)
-			if err != nil {
-				logger.LogError(ctx, fmt.Sprintf(i18n.Translate("ctrl.get_mjp_task_parse_body_error"), err))
-				continue
-			}
-			var responseItems []dto.MidjourneyDto
-			err = json.Unmarshal(responseBody, &responseItems)
-			if err != nil {
-				logger.LogError(ctx, fmt.Sprintf(i18n.Translate("ctrl.get_mjp_task_parse_body_error2_body"), err, string(responseBody)))
-				continue
-			}
-			resp.Body.Close()
-			req.Body.Close()
+			continue
+		}
+		requestUrl := fmt.Sprintf("%s/mj/task/list-by-condition", *midjourneyChannel.BaseURL)
+
+		body, err := common.Marshal(map[string]any{
+			"ids": taskIds,
+		})
+		if err != nil {
+			logger.LogError(ctx, fmt.Sprintf(i18n.Translate("ctrl.get_task_error"), err))
+			continue
+		}
+		timeout := time.Second * 15
+		requestCtx, cancel := context.WithTimeout(ctx, timeout)
+		req, err := http.NewRequestWithContext(requestCtx, "POST", requestUrl, bytes.NewBuffer(body))
+		if err != nil {
 			cancel()
+			logger.LogError(ctx, fmt.Sprintf(i18n.Translate("ctrl.get_task_error"), err))
+			continue
+		}
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("mj-api-secret", midjourneyChannel.Key)
+		resp, err := service.GetHttpClient().Do(req)
+		if err != nil {
+			logger.LogError(ctx, fmt.Sprintf(i18n.Translate("ctrl.get_task_do_req_error"), err))
+			cancel()
+			continue
+		}
+		if resp.StatusCode != http.StatusOK {
+			logger.LogError(ctx, fmt.Sprintf(i18n.Translate("ctrl.get_task_status_code"), resp.StatusCode))
+			resp.Body.Close()
+			cancel()
+			continue
+		}
+		responseBody, err := io.ReadAll(resp.Body)
+		if err != nil {
+			logger.LogError(ctx, fmt.Sprintf(i18n.Translate("ctrl.get_mjp_task_parse_body_error"), err))
+			resp.Body.Close()
+			cancel()
+			continue
+		}
+		var responseItems []dto.MidjourneyDto
+		err = common.Unmarshal(responseBody, &responseItems)
+		if err != nil {
+			logger.LogError(ctx, fmt.Sprintf(i18n.Translate("ctrl.get_mjp_task_parse_body_error2_body"), err, string(responseBody)))
+			resp.Body.Close()
+			cancel()
+			continue
+		}
+		resp.Body.Close()
+		req.Body.Close()
+		cancel()
 
-			for _, responseItem := range responseItems {
-				task := taskM[responseItem.MjId]
+		for _, responseItem := range responseItems {
+			task := taskM[responseItem.MjId]
+			if task == nil {
+				logger.LogWarn(ctx, fmt.Sprintf("Midjourney task response ignored: unknown mj_id=%s", responseItem.MjId))
+				continue
+			}
 
-				useTime := (time.Now().UnixNano() / int64(time.Millisecond)) - task.SubmitTime
-				// 如果时间超过一小时，且进度不是100%，则认为任务失败
-				if useTime > 3600000 && task.Progress != "100%" {
-					responseItem.FailReason = i18n.Translate("midjourney.upstream_timeout")
-					responseItem.Status = "FAILURE"
-				}
-				if !checkMjTaskNeedUpdate(task, responseItem) {
-					continue
-				}
-				preStatus := task.Status
-				task.Code = 1
-				task.Progress = responseItem.Progress
-				task.PromptEn = responseItem.PromptEn
-				task.State = responseItem.State
-				task.SubmitTime = responseItem.SubmitTime
-				task.StartTime = responseItem.StartTime
-				task.FinishTime = responseItem.FinishTime
-				task.ImageUrl = responseItem.ImageUrl
-				task.Status = responseItem.Status
-				task.FailReason = responseItem.FailReason
-				if responseItem.Properties != nil {
-					propertiesStr, _ := json.Marshal(responseItem.Properties)
-					task.Properties = string(propertiesStr)
-				}
-				if responseItem.Buttons != nil {
-					buttonStr, _ := json.Marshal(responseItem.Buttons)
-					task.Buttons = string(buttonStr)
-				}
-				// 映射 VideoUrl
-				task.VideoUrl = responseItem.VideoUrl
+			useTime := (time.Now().UnixNano() / int64(time.Millisecond)) - task.SubmitTime
+			// 如果时间超过一小时，且进度不是100%，则认为任务失败
+			if useTime > 3600000 && task.Progress != "100%" {
+				responseItem.FailReason = i18n.Translate("midjourney.upstream_timeout")
+				responseItem.Status = "FAILURE"
+			}
+			if !checkMjTaskNeedUpdate(task, responseItem) {
+				continue
+			}
+			preStatus := task.Status
+			task.Code = 1
+			task.Progress = responseItem.Progress
+			task.PromptEn = responseItem.PromptEn
+			task.State = responseItem.State
+			task.SubmitTime = responseItem.SubmitTime
+			task.StartTime = responseItem.StartTime
+			task.FinishTime = responseItem.FinishTime
+			task.ImageUrl = responseItem.ImageUrl
+			task.Status = responseItem.Status
+			task.FailReason = responseItem.FailReason
+			if responseItem.Properties != nil {
+				propertiesStr, _ := common.Marshal(responseItem.Properties)
+				task.Properties = string(propertiesStr)
+			}
+			if responseItem.Buttons != nil {
+				buttonStr, _ := common.Marshal(responseItem.Buttons)
+				task.Buttons = string(buttonStr)
+			}
+			// 映射 VideoUrl
+			task.VideoUrl = responseItem.VideoUrl
 
-				// 映射 VideoUrls - 将数组序列化为 JSON 字符串
-				if responseItem.VideoUrls != nil && len(responseItem.VideoUrls) > 0 {
-					videoUrlsStr, err := json.Marshal(responseItem.VideoUrls)
-					if err != nil {
-						logger.LogError(ctx, i18n.Translate("midjourney.serialize_video_failed", map[string]any{"Error": err.Error()}))
-						task.VideoUrls = "[]" // 失败时设置为空数组
-					} else {
-						task.VideoUrls = string(videoUrlsStr)
-					}
-				} else {
-					task.VideoUrls = "" // 空值时清空字段
-				}
-
-				shouldReturnQuota := false
-				if (task.Progress != "100%" && responseItem.FailReason != "") || (task.Progress == "100%" && task.Status == "FAILURE") {
-					logger.LogInfo(ctx, i18n.Translate("midjourney.build_failed", map[string]any{"TaskId": task.MjId, "Reason": task.FailReason}))
-					task.Progress = "100%"
-					if task.Quota != 0 {
-						shouldReturnQuota = true
-					}
-				}
-				won, err := task.UpdateWithStatus(preStatus)
+			// 映射 VideoUrls - 将数组序列化为 JSON 字符串
+			if responseItem.VideoUrls != nil && len(responseItem.VideoUrls) > 0 {
+				videoUrlsStr, err := common.Marshal(responseItem.VideoUrls)
 				if err != nil {
-					logger.LogError(ctx, "UpdateMidjourneyTask task error: "+err.Error())
-				} else if won && shouldReturnQuota {
-					err = model.IncreaseUserQuota(task.UserId, task.Quota, false)
-					if err != nil {
-						logger.LogError(ctx, "fail to increase user quota: "+err.Error())
-					}
-					model.RecordTaskBillingLog(model.RecordTaskBillingLogParams{
-						UserId:    task.UserId,
-						LogType:   model.LogTypeRefund,
-						Content:   "",
-						ChannelId: task.ChannelId,
-						ModelName: service.CovertMjpActionToModelName(task.Action),
-						Quota:     task.Quota,
-						Other: map[string]interface{}{
-							"task_id": task.MjId,
-							"reason":  i18n.Translate("midjourney.image_gen_failed"),
-						},
-					})
+					logger.LogError(ctx, i18n.Translate("midjourney.serialize_video_failed", map[string]any{"Error": err.Error()}))
+					task.VideoUrls = "[]" // 失败时设置为空数组
+				} else {
+					task.VideoUrls = string(videoUrlsStr)
 				}
+			} else {
+				task.VideoUrls = "" // 空值时清空字段
+			}
+
+			shouldReturnQuota := false
+			if (task.Progress != "100%" && responseItem.FailReason != "") || (task.Progress == "100%" && task.Status == "FAILURE") {
+				logger.LogInfo(ctx, i18n.Translate("midjourney.build_failed", map[string]any{"TaskId": task.MjId, "Reason": task.FailReason}))
+				task.Progress = "100%"
+				if task.Quota != 0 {
+					shouldReturnQuota = true
+				}
+			}
+			won, err := task.UpdateWithStatus(preStatus)
+			if err != nil {
+				logger.LogError(ctx, "UpdateMidjourneyTask task error: "+err.Error())
+			} else if won && shouldReturnQuota {
+				err = model.IncreaseUserQuota(task.UserId, task.Quota, false)
+				if err != nil {
+					logger.LogError(ctx, "fail to increase user quota: "+err.Error())
+				}
+				model.RecordTaskBillingLog(model.RecordTaskBillingLogParams{
+					UserId:    task.UserId,
+					LogType:   model.LogTypeRefund,
+					Content:   "",
+					ChannelId: task.ChannelId,
+					ModelName: service.CovertMjpActionToModelName(task.Action),
+					Quota:     task.Quota,
+					Other: map[string]interface{}{
+						"task_id": task.MjId,
+						"reason":  i18n.Translate("midjourney.image_gen_failed"),
+					},
+				})
 			}
 		}
 	}
+	if report != nil && (ctx == nil || ctx.Err() == nil) {
+		report(totalChannels, totalChannels)
+	}
+	return summary
 }
 
 func checkMjTaskNeedUpdate(oldTask *model.Midjourney, newTask dto.MidjourneyDto) bool {
@@ -241,7 +282,7 @@ func checkMjTaskNeedUpdate(oldTask *model.Midjourney, newTask dto.MidjourneyDto)
 	}
 	// 检查 VideoUrls 是否需要更新
 	if newTask.VideoUrls != nil && len(newTask.VideoUrls) > 0 {
-		newVideoUrlsStr, _ := json.Marshal(newTask.VideoUrls)
+		newVideoUrlsStr, _ := common.Marshal(newTask.VideoUrls)
 		if oldTask.VideoUrls != string(newVideoUrlsStr) {
 			return true
 		}

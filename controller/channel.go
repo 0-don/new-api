@@ -1,9 +1,9 @@
 package controller
 
 import (
-	"errors"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -69,6 +69,12 @@ type GetAllChannelsData struct {
 	Page       int              `json:"page"`
 	PageSize   int              `json:"page_size"`
 	TypeCounts map[int64]int64  `json:"type_counts"`
+}
+
+func GetChannelOps(c *gin.Context) {
+	common.ApiSuccess(c, gin.H{
+		"retry_times": common.RetryTimes,
+	})
 }
 
 func GetAllChannels(c fuego.ContextWithParams[dto.GetAllChannelsParams]) (*dto.Response[GetAllChannelsData], error) {

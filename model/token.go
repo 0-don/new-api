@@ -99,28 +99,35 @@ func sanitizeLikePattern(input string) (string, error) {
 	input = strings.ReplaceAll(input, "!", "!!")
 	input = strings.ReplaceAll(input, `_`, `!_`)
 
-	// 2. 连续的 % 直接拒绝
-	if strings.Contains(input, "%%") {
-		return "", errors.New(i18n.Translate("token.search_consecutive_model"))
-	}
-
-	// 3. 统计 % 数量，不得超过 2
-	count := strings.Count(input, "%")
-	if count > 2 {
-		return "", errors.New(i18n.Translate("token.search_max_model"))
-	}
-
-	// 4. 含 % 时，去掉 % 后关键词长度必须 >= 2
-	if count > 0 {
-		stripped := strings.ReplaceAll(input, "%", "")
-		if len(stripped) < 2 {
-			return "", errors.New(i18n.Translate("token.search_min_model"))
-		}
-		return input, nil
+	if err := validateLikePattern(input); err != nil {
+		return "", err
 	}
 
 	// 5. 无 % 时，精确全匹配
 	return input, nil
+}
+
+func validateLikePattern(input string) error {
+	// 1. 连续的 % 直接拒绝
+	if strings.Contains(input, "%%") {
+		return errors.New(i18n.Translate("token.search_consecutive_model"))
+	}
+
+	// 2. 统计 % 数量，不得超过 2
+	count := strings.Count(input, "%")
+	if count > 2 {
+		return errors.New(i18n.Translate("token.search_max_model"))
+	}
+
+	// 3. 含 % 时，去掉 % 后关键词长度必须 >= 2
+	if count > 0 {
+		stripped := strings.ReplaceAll(input, "%", "")
+		if len(stripped) < 2 {
+			return errors.New(i18n.Translate("token.search_min_model"))
+		}
+	}
+
+	return nil
 }
 
 const searchHardLimit = 100
@@ -207,10 +214,16 @@ func ValidateUserToken(key string) (token *Token, err error) {
 			}
 			return token, ErrTokenInvalid
 		}
-		// A zero-quota (non-unlimited) token stays valid so it can still reach free models:
-		// the per-request token-quota gate (PreConsumeTokenQuota) allows zero-cost requests and
-		// rejects any paid one (RemainQuota < quota), so the key works as a free-models-only key.
-		// Not marked Exhausted, so it auto-recovers when topped up.
+		if !token.UnlimitedQuota && token.RemainQuota <= 0 {
+			if !common.RedisEnabled {
+				token.Status = common.TokenStatusExhausted
+				err := token.SelectUpdate()
+				if err != nil {
+					common.SysLog(i18n.Translate("model.failed_to_update_token_status") + err.Error())
+				}
+			}
+			return token, ErrTokenInvalid
+		}
 		return token, nil
 	}
 	common.SysLog(i18n.Translate("model.validateusertoken_failed_to_get_token") + err.Error())

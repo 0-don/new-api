@@ -117,7 +117,7 @@ func oaiChatToResponsesHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 		return nil, types.NewOpenAIError(err, types.ErrorCodeBadResponseBody, http.StatusInternalServerError)
 	}
 
-	responsesResp, err := service.ChatCompletionsResponseToResponsesResponse(&chatResp, info.UpstreamModelName)
+	responsesResp, _, err := service.ChatCompletionsResponseToResponsesResponse(&chatResp, info.UpstreamModelName)
 	if err != nil {
 		return nil, types.NewOpenAIError(err, types.ErrorCodeBadResponseBody, http.StatusInternalServerError)
 	}
@@ -233,7 +233,7 @@ func oaiChatStreamToResponsesHandler(c *gin.Context, info *relaycommon.RelayInfo
 		chatResp.Usage = *usage
 	}
 
-	responsesResp, err := service.ChatCompletionsResponseToResponsesResponse(chatResp, info.UpstreamModelName)
+	responsesResp, _, err := service.ChatCompletionsResponseToResponsesResponse(chatResp, info.UpstreamModelName)
 	if err != nil {
 		return nil, types.NewOpenAIError(err, types.ErrorCodeBadResponseBody, http.StatusInternalServerError)
 	}

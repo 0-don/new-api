@@ -2,6 +2,7 @@ package controller
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -9,12 +10,8 @@ import (
 	"math"
 	"net/http"
 	"net/http/httptest"
-	"net/url"
-	"runtime"
-	"runtime/pprof"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
@@ -33,11 +30,11 @@ import (
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"github.com/QuantumNous/new-api/types"
 
-	"github.com/bytedance/gopkg/util/gopool"
-	"github.com/gin-gonic/gin"
-	"github.com/go-fuego/fuego"
 	"github.com/samber/lo"
 	"github.com/tidwall/gjson"
+
+	"github.com/gin-gonic/gin"
+	"github.com/go-fuego/fuego"
 )
 
 type testResult struct {
@@ -57,19 +54,30 @@ func normalizeChannelTestEndpoint(channel *model.Channel, modelName, endpointTyp
 	if channel != nil && channel.Type == constant.ChannelTypeCodex {
 		return string(constant.EndpointTypeOpenAIResponse)
 	}
-	// Infer the modality endpoint from the model name so the scheduled test (which
-	// passes endpointType="") probes embedding/image models via the right path+body
-	// instead of a chat request. Audio/video stay unhandled (no test path).
-	if isEmbeddingModel(modelName) {
-		return string(constant.EndpointTypeEmbeddings)
-	}
-	if isImageGenModel(modelName) {
-		return string(constant.EndpointTypeImageGeneration)
-	}
 	return normalized
 }
 
-func testChannel(channel *model.Channel, testModel string, endpointType string, isStream bool) testResult {
+func resolveChannelTestUserID(c *gin.Context) (int, error) {
+	if c != nil {
+		if userID := c.GetInt("id"); userID > 0 {
+			return userID, nil
+		}
+	}
+
+	var rootUser model.User
+	if err := model.DB.Select("id").Where("role = ?", common.RoleRootUser).First(&rootUser).Error; err != nil {
+		return 0, fmt.Errorf("failed to resolve channel test user: %w", err)
+	}
+	if rootUser.Id == 0 {
+		return 0, errors.New("failed to resolve channel test user")
+	}
+	return rootUser.Id, nil
+}
+
+func testChannel(ctx context.Context, channel *model.Channel, testUserID int, testModel string, endpointType string, isStream bool) testResult {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	tik := time.Now()
 	var unsupportedTestChannelTypes = []int{
 		constant.ChannelTypeMidjourney,
@@ -125,7 +133,6 @@ func testChannel(channel *model.Channel, testModel string, endpointType string, 
 			strings.HasPrefix(testModel, "m3e") || // m3e 系列模型
 			strings.Contains(testModel, "bge-") || // bge 系列模型
 			strings.Contains(testModel, "embed") ||
-			strings.HasPrefix(strings.ToLower(testModel), "voyage") || // voyage 系列嵌入模型
 			channel.Type == constant.ChannelTypeMokaAI { // 其他 embedding 模型
 			requestPath = "/v1/embeddings" // 修改请求路径
 		}
@@ -135,8 +142,8 @@ func testChannel(channel *model.Channel, testModel string, endpointType string, 
 			requestPath = "/v1/images/generations"
 		}
 
-		// Use Responses API if the global policy says this channel+model should use it
-		if service.ShouldChatCompletionsUseResponsesGlobal(channel.Id, channel.Type, testModel) {
+		// responses-only models
+		if strings.Contains(strings.ToLower(testModel), "codex") {
 			requestPath = "/v1/responses"
 		}
 
@@ -149,14 +156,9 @@ func testChannel(channel *model.Channel, testModel string, endpointType string, 
 		testModel = ratio_setting.WithCompactModelSuffix(testModel)
 	}
 
-	c.Request = &http.Request{
-		Method: "POST",
-		URL:    &url.URL{Path: requestPath}, // 使用动态路径
-		Body:   nil,
-		Header: make(http.Header),
-	}
+	c.Request = httptest.NewRequestWithContext(ctx, http.MethodPost, requestPath, nil)
 
-	cache, err := model.GetUserCache(1)
+	cache, err := model.GetUserCache(testUserID)
 	if err != nil {
 		return testResult{
 			localErr:    err,
@@ -164,13 +166,13 @@ func testChannel(channel *model.Channel, testModel string, endpointType string, 
 		}
 	}
 	cache.WriteContext(c)
-	c.Set("id", 1)
+	c.Set("id", testUserID)
 
 	//c.Request.Header.Set("Authorization", "Bearer "+channel.Key)
 	c.Request.Header.Set("Content-Type", "application/json")
 	c.Set("channel", channel.Type)
 	c.Set("base_url", channel.GetBaseURL())
-	group, _ := model.GetUserGroup(1, false)
+	group, _ := model.GetUserGroup(testUserID, false)
 	c.Set("group", group)
 
 	newAPIError := middleware.SetupContextForSelectedChannel(c, channel, testModel)
@@ -284,7 +286,7 @@ func testChannel(channel *model.Channel, testModel string, endpointType string, 
 		return testResult{
 			context:     c,
 			localErr:    fmt.Errorf(i18n.Translate("ctrl.invalid_api_type_adaptor_is_nil"), apiType),
-			newAPIError: types.NewError(fmt.Errorf(i18n.Translate("ctrl.invalid_api_type_adaptor_is_nil_b33a"), apiType), types.ErrorCodeInvalidApiType),
+			newAPIError: types.NewError(fmt.Errorf(i18n.Translate("ctrl.invalid_api_type_adaptor_is_nil"), apiType), types.ErrorCodeInvalidApiType),
 		}
 	}
 
@@ -315,7 +317,7 @@ func testChannel(channel *model.Channel, testModel string, endpointType string, 
 			return testResult{
 				context:     c,
 				localErr:    errors.New(i18n.Translate("ctrl.invalid_embedding_request_type")),
-				newAPIError: types.NewError(errors.New(i18n.Translate("ctrl.invalid_embedding_request_type_ddfb")), types.ErrorCodeConvertRequestFailed),
+				newAPIError: types.NewError(errors.New(i18n.Translate("ctrl.invalid_embedding_request_type")), types.ErrorCodeConvertRequestFailed),
 			}
 		}
 	case relayconstant.RelayModeImagesGenerations:
@@ -326,7 +328,7 @@ func testChannel(channel *model.Channel, testModel string, endpointType string, 
 			return testResult{
 				context:     c,
 				localErr:    errors.New(i18n.Translate("ctrl.invalid_image_request_type")),
-				newAPIError: types.NewError(errors.New(i18n.Translate("ctrl.invalid_image_request_type_735c")), types.ErrorCodeConvertRequestFailed),
+				newAPIError: types.NewError(errors.New(i18n.Translate("ctrl.invalid_image_request_type")), types.ErrorCodeConvertRequestFailed),
 			}
 		}
 	case relayconstant.RelayModeRerank:
@@ -337,7 +339,7 @@ func testChannel(channel *model.Channel, testModel string, endpointType string, 
 			return testResult{
 				context:     c,
 				localErr:    errors.New(i18n.Translate("ctrl.invalid_rerank_request_type")),
-				newAPIError: types.NewError(errors.New(i18n.Translate("ctrl.invalid_rerank_request_type_931a")), types.ErrorCodeConvertRequestFailed),
+				newAPIError: types.NewError(errors.New(i18n.Translate("ctrl.invalid_rerank_request_type")), types.ErrorCodeConvertRequestFailed),
 			}
 		}
 	case relayconstant.RelayModeResponses:
@@ -348,7 +350,7 @@ func testChannel(channel *model.Channel, testModel string, endpointType string, 
 			return testResult{
 				context:     c,
 				localErr:    errors.New(i18n.Translate("ctrl.invalid_response_request_type")),
-				newAPIError: types.NewError(errors.New(i18n.Translate("ctrl.invalid_response_request_type_88f1")), types.ErrorCodeConvertRequestFailed),
+				newAPIError: types.NewError(errors.New(i18n.Translate("ctrl.invalid_response_request_type")), types.ErrorCodeConvertRequestFailed),
 			}
 		}
 	case relayconstant.RelayModeResponsesCompact:
@@ -367,7 +369,7 @@ func testChannel(channel *model.Channel, testModel string, endpointType string, 
 			return testResult{
 				context:     c,
 				localErr:    errors.New(i18n.Translate("ctrl.invalid_response_compaction_request_type")),
-				newAPIError: types.NewError(errors.New(i18n.Translate("ctrl.invalid_response_compaction_request_type_9b4c")), types.ErrorCodeConvertRequestFailed),
+				newAPIError: types.NewError(errors.New(i18n.Translate("ctrl.invalid_response_compaction_request_type")), types.ErrorCodeConvertRequestFailed),
 			}
 		}
 	default:
@@ -378,7 +380,7 @@ func testChannel(channel *model.Channel, testModel string, endpointType string, 
 			return testResult{
 				context:     c,
 				localErr:    errors.New(i18n.Translate("ctrl.invalid_general_request_type")),
-				newAPIError: types.NewError(errors.New(i18n.Translate("ctrl.invalid_general_request_type_5057")), types.ErrorCodeConvertRequestFailed),
+				newAPIError: types.NewError(errors.New(i18n.Translate("ctrl.invalid_general_request_type")), types.ErrorCodeConvertRequestFailed),
 			}
 		}
 	}
@@ -409,7 +411,6 @@ func testChannel(channel *model.Channel, testModel string, endpointType string, 
 	//}
 
 	if len(info.ParamOverride) > 0 {
-		// channel-test has no client-facing response writer; nil suppresses the header emit.
 		jsonData, err = relaycommon.ApplyParamOverrideWithRelayInfo(jsonData, info, nil)
 		if err != nil {
 			if fixedErr, ok := relaycommon.AsParamOverrideReturnError(err); ok {
@@ -498,7 +499,7 @@ func testChannel(channel *model.Channel, testModel string, endpointType string, 
 	milliseconds := tok.Sub(tik).Milliseconds()
 	consumedTime := float64(milliseconds) / 1000.0
 	other := buildTestLogOther(c, info, priceData, usage, tieredResult)
-	model.RecordConsumeLog(c, 1, model.RecordConsumeLogParams{
+	model.RecordConsumeLog(c, testUserID, model.RecordConsumeLogParams{
 		ChannelId:        channel.Id,
 		PromptTokens:     usage.PromptTokens,
 		CompletionTokens: usage.CompletionTokens,
@@ -621,7 +622,7 @@ func detectErrorFromTestResponseBody(respBody []byte) error {
 			continue
 		}
 		if message := detectErrorMessageFromJSONBytes(payload); message != "" {
-			return fmt.Errorf(i18n.Translate("ctrl.upstream_error_c3f6"), message)
+			return fmt.Errorf(i18n.Translate("ctrl.upstream_error"), message)
 		}
 	}
 
@@ -662,117 +663,6 @@ func validateTestResponseBody(respBody []byte, isStream bool) error {
 
 func shouldUseStreamForAutomaticChannelTest(channel *model.Channel) bool {
 	return channel != nil && channel.Type == constant.ChannelTypeCodex
-}
-
-// autoTestPoolKey groups channels by the upstream they actually hit, so the
-// scheduled sweep never tests two channels of the same provider at once. The
-// base_url host is the truest key (e.g. all ahm1-* channels resolve to
-// aihubmix.com). Fall back to channel type when the URL is unparseable so such
-// channels still pool together rather than each becoming its own host.
-func autoTestPoolKey(channel *model.Channel) string {
-	base := strings.TrimSpace(channel.GetBaseURL())
-	if base != "" {
-		if u, err := url.Parse(base); err == nil && u.Host != "" {
-			return strings.ToLower(u.Host)
-		}
-	}
-	return fmt.Sprintf("type:%d", channel.Type)
-}
-
-// image/video/audio generation models cost real money per call; autotest must not hit them
-var nonTextModelKeywords = []string{
-	"image", "dall-e", "flux", "seedream", "stable-diffusion", "imagen", "recraft", "ideogram", "midjourney",
-	"video", "sora", "kling", "veo", "vidu", "jimeng",
-	"tts", "whisper", "audio", "speech", "transcribe", "suno", "music",
-}
-
-// Embedding models testChannel can probe cheaply via /v1/embeddings. Free channels
-// that serve ONLY embeddings would otherwise never be auto-tested (no text model to
-// pick), so dead embedding lanes sat broken. Allow them through for free channels.
-var embeddingModelKeywords = []string{
-	"embedding", "embed", "bge-", "m3e", "voyage", "rerank",
-}
-
-// OpenAI-shaped image-generation models testChannel can probe via /v1/images/generations.
-// Free image lanes (flux/dall-e/gpt-image) are tested when disabled; the upstream image
-// call is the cost, acceptable on a free lane at the scheduled interval.
-var imageGenModelKeywords = []string{
-	"dall-e", "gpt-image", "flux", "seedream", "stable-diffusion", "imagen",
-	"recraft", "ideogram", "sdxl",
-}
-
-func isImageGenModel(modelName string) bool {
-	name := strings.ToLower(modelName)
-	for _, keyword := range imageGenModelKeywords {
-		if strings.Contains(name, keyword) {
-			return true
-		}
-	}
-	return false
-}
-
-func isNonTextModel(modelName string) bool {
-	name := strings.ToLower(modelName)
-	for _, keyword := range nonTextModelKeywords {
-		if strings.Contains(name, keyword) {
-			return true
-		}
-	}
-	return false
-}
-
-func isEmbeddingModel(modelName string) bool {
-	name := strings.ToLower(modelName)
-	for _, keyword := range embeddingModelKeywords {
-		if strings.Contains(name, keyword) {
-			return true
-		}
-	}
-	return false
-}
-
-// A free channel costs nothing per call, so autotest may probe its non-text
-// (embedding) models too. Detected by the ":free" published-name convention or a
-// group whose name carries "free".
-func isFreeChannel(channel *model.Channel) bool {
-	if strings.Contains(strings.ToLower(channel.Group), "free") {
-		return true
-	}
-	for _, m := range channel.GetModels() {
-		if strings.HasSuffix(strings.TrimSpace(strings.ToLower(m)), ":free") {
-			return true
-		}
-	}
-	return false
-}
-
-// pickAutoTestModel returns the model the scheduled autotest should use, or "" to skip the channel
-func pickAutoTestModel(channel *model.Channel) string {
-	if channel.TestModel != nil {
-		testModel := strings.TrimSpace(*channel.TestModel)
-		if testModel != "" && !isNonTextModel(testModel) {
-			return testModel
-		}
-	}
-	for _, m := range channel.GetModels() {
-		m = strings.TrimSpace(m)
-		if m != "" && !isNonTextModel(m) {
-			return m
-		}
-	}
-	// No text model. For FREE channels, fall back to an embedding or image model:
-	// testChannel routes them to /v1/embeddings or /v1/images/generations, so a free
-	// embedding-/image-only lane still gets re-checked (and auto-disabled when dead).
-	// Free = no per-call charge to us. Audio/video stay skipped (no test path).
-	if isFreeChannel(channel) {
-		for _, m := range channel.GetModels() {
-			m = strings.TrimSpace(m)
-			if m != "" && (isEmbeddingModel(m) || isImageGenModel(m)) {
-				return m
-			}
-		}
-	}
-	return ""
 }
 
 func detectErrorMessageFromJSONBytes(jsonBytes []byte) string {
@@ -879,13 +769,10 @@ func buildTestRequest(model string, endpointType string, channel *model.Channel,
 		}
 	}
 
-	// 先判断是否为 Embedding 模型 (must match the /v1/embeddings path detection in
-	// testChannel: embedding/embed/m3e/bge-/voyage, else the body and path disagree)
+	// 先判断是否为 Embedding 模型
 	if strings.Contains(strings.ToLower(model), "embedding") ||
 		strings.HasPrefix(model, "m3e") ||
-		strings.Contains(model, "bge-") ||
-		strings.Contains(strings.ToLower(model), "embed") ||
-		strings.HasPrefix(strings.ToLower(model), "voyage") {
+		strings.Contains(model, "bge-") {
 		// 返回 EmbeddingRequest
 		return &dto.EmbeddingRequest{
 			Model: model,
@@ -901,8 +788,8 @@ func buildTestRequest(model string, endpointType string, channel *model.Channel,
 		}
 	}
 
-	// Use Responses API if the global policy says this channel+model should use it
-	if channel != nil && service.ShouldChatCompletionsUseResponsesGlobal(channel.Id, channel.Type, model) {
+	// Responses-only models (e.g. codex series)
+	if strings.Contains(strings.ToLower(model), "codex") {
 		return &dto.OpenAIResponsesRequest{
 			Model:  model,
 			Input:  json.RawMessage(`[{"role":"user","content":"hi"}]`),
@@ -942,6 +829,7 @@ func buildTestRequest(model string, endpointType string, channel *model.Channel,
 
 func TestChannel(c fuego.ContextWithParams[dto.TestChannelParams]) (dto.TestChannelResponse, error) {
 	p, _ := dto.ParseParams[dto.TestChannelParams](c)
+	ginCtx := dto.GinCtx(c)
 	channelId, err := c.PathParamIntErr("id")
 	if err != nil {
 		return dto.TestChannelResponse{Success: false, Message: err.Error()}, nil
@@ -956,8 +844,16 @@ func TestChannel(c fuego.ContextWithParams[dto.TestChannelParams]) (dto.TestChan
 	testModel := p.Model
 	endpointType := p.EndpointType
 	isStream := p.Stream
+	testUserID, err := resolveChannelTestUserID(ginCtx)
+	if err != nil {
+		return dto.TestChannelResponse{Success: false, Message: err.Error()}, nil
+	}
 	tik := time.Now()
-	result := testChannel(channel, testModel, endpointType, isStream)
+	requestCtx := context.Background()
+	if ginCtx != nil && ginCtx.Request != nil {
+		requestCtx = ginCtx.Request.Context()
+	}
+	result := testChannel(requestCtx, channel, testUserID, testModel, endpointType, isStream)
 	if result.localErr != nil {
 		resp := dto.TestChannelResponse{Success: false, Message: result.localErr.Error(), Time: 0.0}
 		if result.newAPIError != nil {
@@ -975,262 +871,160 @@ func TestChannel(c fuego.ContextWithParams[dto.TestChannelParams]) (dto.TestChan
 	return dto.TestChannelResponse{Success: true, Message: "", Time: consumedTime}, nil
 }
 
-var testAllChannelsLock sync.Mutex
-var testAllChannelsRunning bool = false
-var testAllChannelsStartedAt atomic.Int64
+// channelTestSummary records the outcome of one channel test cycle so the
+// system task can persist a per-run result for history.
+type channelTestSummary struct {
+	Tested    int `json:"tested"`
+	Succeeded int `json:"succeeded"`
+	Failed    int `json:"failed"`
+	Disabled  int `json:"disabled"`
+	Enabled   int `json:"enabled"`
+}
 
-const scheduledChannelTestTimeout = 60 * time.Second
-
-// scheduledChannelTestConcurrency caps how many channels a single sweep tests at
-// once. The sweep was serial (one channel, wait, next), so a slow channel stalled
-// every channel behind it and a full pass over the disabled pool took minutes.
-// Each channel test is independent (test -> enable/disable decision), so we fan
-// out with a bounded pool. Most channels target distinct upstreams, so a wide
-// pool rarely concentrates load on one backend.
-const scheduledChannelTestConcurrency = 32
-
-var errTestAlreadyRunning = errors.New("ctrl.test_already_running")
-
-func testAllChannels(notify bool) error {
-
-	testAllChannelsLock.Lock()
-	if testAllChannelsRunning {
-		testAllChannelsLock.Unlock()
-		return errTestAlreadyRunning
-	}
-	testAllChannelsRunning = true
-	testAllChannelsStartedAt.Store(time.Now().Unix())
-	testAllChannelsLock.Unlock()
-
-	resetRunning := func() {
-		testAllChannelsLock.Lock()
-		testAllChannelsRunning = false
-		testAllChannelsStartedAt.Store(0)
-		testAllChannelsLock.Unlock()
-	}
-
-	channels, getChannelErr := model.GetAllChannels(0, 0, true, false)
-	if getChannelErr != nil {
-		resetRunning()
-		common.SysError(fmt.Sprintf("[autotest] GetAllChannels failed: %v", getChannelErr))
-		return getChannelErr
-	}
-	common.SysLog(fmt.Sprintf("[autotest] loaded %d channels, goroutines=%d", len(channels), runtime.NumGoroutine()))
+// performChannelTests runs the channel test loop synchronously, honoring ctx
+// cancellation so a system-task runner that loses its lease stops promptly. When
+// report is non-nil it is called after each channel with (processed, total) so
+// the system task can surface progress.
+func performChannelTests(ctx context.Context, channels []*model.Channel, testUserID int, allowDisable bool, report func(processed, total int)) channelTestSummary {
+	summary := channelTestSummary{}
 	var disableThreshold = int64(common.ChannelDisableThreshold * 1000)
 	if disableThreshold == 0 {
 		disableThreshold = 10000000 // a impossible value
 	}
-	gopool.Go(func() {
-		// 使用 defer 确保无论如何都会重置运行状态，防止死锁
-		defer func() {
-			if r := recover(); r != nil {
-				stack := make([]byte, 4096)
-				n := runtime.Stack(stack, false)
-				common.SysError(fmt.Sprintf("[autotest] panic in worker: %v\n%s", r, stack[:n]))
+
+	total := len(channels)
+	for index, channel := range channels {
+		if ctx != nil && ctx.Err() != nil {
+			break
+		}
+		if report != nil {
+			report(index, total) // channels completed before this one
+		}
+		if channel.Status == common.ChannelStatusManuallyDisabled {
+			continue
+		}
+		isChannelEnabled := channel.Status == common.ChannelStatusEnabled
+		tik := time.Now()
+		result := testChannel(ctx, channel, testUserID, "", "", shouldUseStreamForAutomaticChannelTest(channel))
+		tok := time.Now()
+		milliseconds := tok.Sub(tik).Milliseconds()
+		if ctx != nil && ctx.Err() != nil {
+			break
+		}
+
+		summary.Tested++
+
+		shouldBanChannel := false
+		newAPIError := result.newAPIError
+		// request error disables the channel
+		if newAPIError != nil {
+			shouldBanChannel = service.ShouldDisableChannel(result.newAPIError)
+		}
+
+		// 当错误检查通过，才检查响应时间
+		if common.AutomaticDisableChannelEnabled && !shouldBanChannel {
+			if milliseconds > disableThreshold {
+				err := fmt.Errorf(i18n.Translate("channel_test.response_timeout", map[string]any{"Actual": fmt.Sprintf("%.2f", float64(milliseconds)/1000.0), "Threshold": fmt.Sprintf("%.2f", float64(disableThreshold)/1000.0)}))
+				newAPIError = types.NewOpenAIError(err, types.ErrorCodeChannelResponseTimeExceeded, http.StatusRequestTimeout)
+				shouldBanChannel = true
 			}
-			resetRunning()
-			common.SysLog("[autotest] worker exit")
-		}()
+		}
 
-		autoTestDisabledOnly := operation_setting.GetMonitorSetting().AutoTestDisabledChannelsOnly
-		var tested, skipped, enabled, disabled atomic.Int64
+		if newAPIError == nil {
+			summary.Succeeded++
+		} else {
+			summary.Failed++
+		}
 
-		// runOne tests a single channel and applies the enable/disable decision.
-		// Independent per channel, so it is safe to run many in parallel as long
-		// as no two run against the same upstream at once (see pooling below).
-		runOne := func(channel *model.Channel) {
-			autoTestModel := pickAutoTestModel(channel)
-			if autoTestModel == "" {
-				common.SysLog(fmt.Sprintf("[autotest] skip id=%d name=%q: no text model to test", channel.Id, channel.Name))
-				skipped.Add(1)
-				return
-			}
-			isChannelEnabled := channel.Status == common.ChannelStatusEnabled
-			tik := time.Now()
-			common.SysLog(fmt.Sprintf("[autotest] testing id=%d name=%q status=%d model=%s", channel.Id, channel.Name, channel.Status, autoTestModel))
+		// disable channel
+		if allowDisable && isChannelEnabled && shouldBanChannel && channel.GetAutoBan() {
+			processChannelError(result.context, *types.NewChannelError(channel.Id, channel.Type, channel.Name, channel.ChannelInfo.IsMultiKey, common.GetContextKeyString(result.context, constant.ContextKeyChannelKey), channel.GetAutoBan()), newAPIError)
+			summary.Disabled++
+		}
 
-			resultCh := make(chan testResult, 1)
-			gopool.Go(func() {
-				defer func() {
-					if r := recover(); r != nil {
-						stack := make([]byte, 4096)
-						n := runtime.Stack(stack, false)
-						common.SysError(fmt.Sprintf("[autotest] panic testing id=%d: %v\n%s", channel.Id, r, stack[:n]))
-						resultCh <- testResult{newAPIError: types.NewOpenAIError(fmt.Errorf("panic: %v", r), types.ErrorCodeDoRequestFailed, http.StatusInternalServerError)}
-					}
-				}()
-				resultCh <- testChannel(channel, autoTestModel, "", shouldUseStreamForAutomaticChannelTest(channel))
-			})
+		// enable channel
+		if result.localErr == nil && !isChannelEnabled && service.ShouldEnableChannel(newAPIError, channel.Status) {
+			service.EnableChannel(channel.Id, common.GetContextKeyString(result.context, constant.ContextKeyChannelKey), channel.Name)
+			summary.Enabled++
+		}
 
-			var result testResult
-			select {
-			case result = <-resultCh:
-			case <-time.After(scheduledChannelTestTimeout):
-				common.SysError(fmt.Sprintf("[autotest] timeout id=%d name=%q after %s", channel.Id, channel.Name, scheduledChannelTestTimeout))
-				err := fmt.Errorf("scheduled test timeout after %s", scheduledChannelTestTimeout)
-				result = testResult{newAPIError: types.NewOpenAIError(err, types.ErrorCodeChannelResponseTimeExceeded, http.StatusRequestTimeout)}
-			}
-
-			tok := time.Now()
-			milliseconds := tok.Sub(tik).Milliseconds()
-
-			shouldBanChannel := false
-			newAPIError := result.newAPIError
-			// request error disables the channel
-			if newAPIError != nil {
-				shouldBanChannel = service.ShouldDisableChannel(result.newAPIError)
-			}
-
-			// 当错误检查通过，才检查响应时间
-			if common.AutomaticDisableChannelEnabled && !shouldBanChannel {
-				if milliseconds > disableThreshold {
-					err := fmt.Errorf(i18n.Translate("channel_test.response_timeout", map[string]any{"Actual": fmt.Sprintf("%.2f", float64(milliseconds)/1000.0), "Threshold": fmt.Sprintf("%.2f", float64(disableThreshold)/1000.0)}))
-					newAPIError = types.NewOpenAIError(err, types.ErrorCodeChannelResponseTimeExceeded, http.StatusRequestTimeout)
-					shouldBanChannel = true
+		channel.UpdateResponseTime(milliseconds)
+		if common.RequestInterval > 0 {
+			if ctx == nil {
+				time.Sleep(common.RequestInterval)
+			} else {
+				select {
+				case <-ctx.Done():
+					return summary
+				case <-time.After(common.RequestInterval):
 				}
 			}
-
-			// disable channel
-			if isChannelEnabled && shouldBanChannel && channel.GetAutoBan() {
-				processChannelError(result.context, *types.NewChannelError(channel.Id, channel.Type, channel.Name, channel.ChannelInfo.IsMultiKey, common.GetContextKeyString(result.context, constant.ContextKeyChannelKey), channel.GetAutoBan()), newAPIError)
-				disabled.Add(1)
-			}
-
-			// enable channel
-			shouldEnable := !isChannelEnabled && service.ShouldEnableChannel(newAPIError, channel.Status)
-			common.SysLog(fmt.Sprintf("[autotest] result id=%d duration=%dms err=%v shouldEnable=%v", channel.Id, milliseconds, newAPIError, shouldEnable))
-			if shouldEnable {
-				service.EnableChannel(channel.Id, common.GetContextKeyString(result.context, constant.ContextKeyChannelKey), channel.Name)
-				enabled.Add(1)
-			}
-
-			channel.UpdateResponseTime(milliseconds)
-			tested.Add(1)
-			time.Sleep(common.RequestInterval)
 		}
-
-		// Pool eligible channels by upstream host so we never hit one provider with
-		// concurrent tests (that self-induces 429/503 on shared backends, e.g. the
-		// 16 ahm1-* channels all on aihubmix.com). Each host drains its queue
-		// serially; distinct hosts run in parallel up to the concurrency cap.
-		hostQueues := map[string][]*model.Channel{}
-		var hostOrder []string
-		for _, channel := range channels {
-			if channel.Status == common.ChannelStatusManuallyDisabled {
-				skipped.Add(1)
-				continue
-			}
-			if autoTestDisabledOnly && channel.Status != common.ChannelStatusAutoDisabled {
-				skipped.Add(1)
-				continue
-			}
-			host := autoTestPoolKey(channel)
-			if _, ok := hostQueues[host]; !ok {
-				hostOrder = append(hostOrder, host)
-			}
-			hostQueues[host] = append(hostQueues[host], channel)
-		}
-
-		sem := make(chan struct{}, scheduledChannelTestConcurrency)
-		var wg sync.WaitGroup
-		for _, host := range hostOrder {
-			queue := hostQueues[host]
-			wg.Add(1)
-			gopool.Go(func() {
-				defer wg.Done()
-				// One slot per host at a time: serialize within a host, parallel across hosts.
-				sem <- struct{}{}
-				defer func() { <-sem }()
-				for _, channel := range queue {
-					runOne(channel)
-				}
-			})
-		}
-		wg.Wait()
-
-		common.SysLog(fmt.Sprintf("[autotest] cycle done: tested=%d skipped=%d enabled=%d disabled=%d hosts=%d", tested.Load(), skipped.Load(), enabled.Load(), disabled.Load(), len(hostOrder)))
-
-		if notify {
-			service.NotifyRootUser(dto.NotifyTypeChannelTest, i18n.Translate("channel_test.completed_subject"), i18n.Translate("channel_test.completed_content"))
-		}
-	})
-	return nil
+	}
+	if report != nil && (ctx == nil || ctx.Err() == nil) {
+		report(total, total) // mark complete only when the full set was tested
+	}
+	return summary
 }
 
-// startTestAllChannelsWatchdog detects a stuck testAllChannels worker.
-// If the running flag stays set longer than maxAge, dump goroutine stacks and
-// force-reset the flag so the scheduler can recover without a process restart.
-func startTestAllChannelsWatchdog() {
-	gopool.Go(func() {
-		ticker := time.NewTicker(2 * time.Minute)
-		defer ticker.Stop()
-		for range ticker.C {
-			started := testAllChannelsStartedAt.Load()
-			if started == 0 {
-				continue
-			}
-			age := time.Since(time.Unix(started, 0))
-			interval := time.Duration(int(math.Round(operation_setting.GetMonitorSetting().AutoTestChannelMinutes))) * time.Minute
-			if interval <= 0 {
-				interval = time.Minute
-			}
-			maxAge := 5 * interval
-			if age < maxAge {
-				continue
-			}
-			common.SysError(fmt.Sprintf("[autotest-watchdog] worker stuck for %s (maxAge=%s); dumping goroutines and force-resetting", age, maxAge))
-			var buf bytes.Buffer
-			_ = pprof.Lookup("goroutine").WriteTo(&buf, 1)
-			common.SysError("[autotest-watchdog] goroutine dump:\n" + buf.String())
-			testAllChannelsLock.Lock()
-			testAllChannelsRunning = false
-			testAllChannelsStartedAt.Store(0)
-			testAllChannelsLock.Unlock()
-			common.SysLog("[autotest-watchdog] force-reset complete")
-		}
-	})
-}
-
-func TestAllChannels(c fuego.ContextNoBody) (dto.MessageResponse, error) {
-	err := testAllChannels(true)
+// runChannelTestTask runs one synchronous channel test cycle for the system task
+// runner (both the scheduled job and the manual "test all channels" trigger go
+// through here). It honors ctx cancellation so a runner that loses its lease
+// stops promptly. mode selects the channel set: an empty mode falls back to the
+// configured monitor ChannelTestMode (scheduled behavior), while a manual
+// trigger passes ChannelTestModeScheduledAll to test every channel. When notify
+// is set the root user is notified on completion. Cross-instance execution is
+// guarded by the system task per-type lock, so no process-local guard is needed.
+func runChannelTestTask(ctx context.Context, mode string, notify bool, report func(processed, total int)) (channelTestSummary, error) {
+	testUserID, err := resolveChannelTestUserID(nil)
 	if err != nil {
-		if errors.Is(err, errTestAlreadyRunning) {
-			return dto.FailMsg(common.TranslateMessage(dto.GinCtx(c), "relay.test_running"))
+		return channelTestSummary{}, err
+	}
+	channels, err := model.GetAllChannels(0, 0, true, false)
+	if err != nil {
+		return channelTestSummary{}, err
+	}
+	if strings.TrimSpace(mode) == "" {
+		mode = operation_setting.GetMonitorSetting().ChannelTestMode
+	}
+	selected := selectChannelsForAutomaticTest(channels, mode)
+	allowDisable := mode != operation_setting.ChannelTestModePassiveRecovery
+	summary := performChannelTests(ctx, selected, testUserID, allowDisable, report)
+	if notify && (ctx == nil || ctx.Err() == nil) {
+		service.NotifyRootUser(dto.NotifyTypeChannelTest, "通道测试完成", "所有通道测试已完成")
+	}
+	return summary, nil
+}
+
+func selectChannelsForAutomaticTest(channels []*model.Channel, mode string) []*model.Channel {
+	selected := make([]*model.Channel, 0, len(channels))
+	for _, channel := range channels {
+		if channel.Status == common.ChannelStatusManuallyDisabled {
+			continue
 		}
-		return dto.FailMsg(err.Error())
+		if mode == operation_setting.ChannelTestModePassiveRecovery && channel.Status != common.ChannelStatusAutoDisabled {
+			continue
+		}
+		selected = append(selected, channel)
+	}
+	return selected
+}
+
+// TestAllChannels enqueues a channel_test system task instead of running the
+// test loop inline. If any channel_test task is already active, the manual run is
+// rejected so the caller does not mistake a scheduled run for this manual one.
+func TestAllChannels(c fuego.ContextNoBody) (dto.MessageResponse, error) {
+	_, created, err := service.EnqueueSystemTask(model.SystemTaskTypeChannelTest, channelTestTaskPayload{
+		Mode:   operation_setting.ChannelTestModeScheduledAll,
+		Notify: true,
+	})
+	if err != nil {
+		return dto.MessageResponse{}, err
+	}
+	if !created {
+		return dto.MessageResponse{}, fmt.Errorf("a channel test task is already running or pending")
 	}
 	return dto.Msg("")
-}
-
-var autoTestChannelsOnce sync.Once
-
-func AutomaticallyTestChannels() {
-	// 只在Master节点定时测试渠道
-	if !common.IsMasterNode {
-		return
-	}
-	autoTestChannelsOnce.Do(func() {
-		startTestAllChannelsWatchdog()
-		for {
-			if !operation_setting.GetMonitorSetting().AutoTestChannelEnabled {
-				time.Sleep(1 * time.Minute)
-				continue
-			}
-			for {
-				frequency := operation_setting.GetMonitorSetting().AutoTestChannelMinutes
-				time.Sleep(time.Duration(int(math.Round(frequency))) * time.Minute)
-				common.SysLog(fmt.Sprintf(i18n.Translate("ctrl.automatically_test_channels_with_interval_minutes"), frequency))
-				common.SysLog(i18n.Translate("ctrl.automatically_testing_all_channels"))
-				if err := testAllChannels(false); err != nil {
-					common.SysError(fmt.Sprintf("[autotest] testAllChannels error: %v (goroutines=%d, runningStartedAt=%d)", err, runtime.NumGoroutine(), testAllChannelsStartedAt.Load()))
-				}
-				common.SysLog(i18n.Translate("ctrl.automatically_channel_test_finished"))
-				if !operation_setting.GetMonitorSetting().AutoTestChannelEnabled {
-					break
-				}
-			}
-		}
-	})
 }
 
 var autoSnapshotModelStatusOnce sync.Once

@@ -969,7 +969,7 @@ func HandleClaudeResponseData(c *gin.Context, info *relaycommon.RelayInfo, claud
 	case types.RelayFormatOpenAIResponses:
 		openaiResponse := ResponseClaude2OpenAI(&claudeResponse)
 		openaiResponse.Usage = buildOpenAIStyleUsageFromClaudeUsage(claudeInfo.Usage)
-		responsesResp, convErr := service.ChatCompletionsResponseToResponsesResponse(openaiResponse, info.UpstreamModelName)
+		responsesResp, _, convErr := service.ChatCompletionsResponseToResponsesResponse(openaiResponse, info.UpstreamModelName)
 		if convErr != nil {
 			return types.NewError(convErr, types.ErrorCodeBadResponseBody)
 		}

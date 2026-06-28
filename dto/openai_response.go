@@ -334,7 +334,7 @@ func (o *OpenAIResponsesResponse) GetSize() string {
 }
 
 type IncompleteDetails struct {
-	Reasoning string `json:"reasoning"`
+	Reason string `json:"reason"`
 }
 
 type ResponsesOutput struct {
@@ -403,7 +403,7 @@ type ResponsesStreamResponse struct {
 	ContentIndex *int                    `json:"content_index,omitempty"`
 	SummaryIndex *int                    `json:"summary_index,omitempty"`
 	ItemID       string                  `json:"item_id,omitempty"`
-	Part         *ResponsesOutputContent `json:"part,omitempty"`
+	Part         any                     `json:"part,omitempty"`
 }
 
 // GetOpenAIError 从动态错误类型中提取OpenAIError结构

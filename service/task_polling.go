@@ -7,8 +7,8 @@ import (
 	"io"
 	"net/http"
 	"sort"
-	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
@@ -20,6 +20,7 @@ import (
 	"github.com/QuantumNous/new-api/relay/channel/task/taskcommon"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 
+	"github.com/bytedance/gopkg/util/gopool"
 	"github.com/samber/lo"
 )
 
@@ -89,65 +90,101 @@ func sweepTimedOutTasks(ctx context.Context) {
 	}
 }
 
-// TaskPollingLoop 主轮询循环，每 15 秒检查一次未完成的任务
-func TaskPollingLoop() {
-	for {
-		time.Sleep(time.Duration(15) * time.Second)
-		common.SysLog(i18n.Translate("task_polling.started"))
-		ctx := context.TODO()
-		sweepTimedOutTasks(ctx)
-		allTasks := model.GetAllUnFinishSyncTasks(constant.TaskQueryLimit)
-		platformTask := make(map[constant.TaskPlatform][]*model.Task)
-		for _, t := range allTasks {
-			platformTask[t.Platform] = append(platformTask[t.Platform], t)
-		}
-		for platform, tasks := range platformTask {
-			if len(tasks) == 0 {
-				continue
-			}
-			taskChannelM := make(map[int][]string)
-			taskM := make(map[string]*model.Task)
-			nullTaskIds := make([]int64, 0)
-			for _, task := range tasks {
-				upstreamID := task.GetUpstreamTaskID()
-				if upstreamID == "" {
-					// 统计失败的未完成任务
-					nullTaskIds = append(nullTaskIds, task.ID)
-					continue
-				}
-				taskM[upstreamID] = task
-				taskChannelM[task.ChannelId] = append(taskChannelM[task.ChannelId], upstreamID)
-			}
-			if len(nullTaskIds) > 0 {
-				err := model.TaskBulkUpdateByID(nullTaskIds, map[string]any{
-					"status":   "FAILURE",
-					"progress": "100%",
-				})
-				if err != nil {
-					logger.LogError(ctx, fmt.Sprintf(i18n.Translate("svc.fix_null_task_id_task_error"), err))
-				} else {
-					logger.LogInfo(ctx, fmt.Sprintf(i18n.Translate("svc.fix_null_task_id_task_success"), nullTaskIds))
-				}
-			}
-			if len(taskChannelM) == 0 {
-				continue
-			}
+// TaskPollSummary is the result recorded on an async_task_poll system task row,
+// summarizing one polling pass.
+type TaskPollSummary struct {
+	UnfinishedTasks  int `json:"unfinished_tasks"`
+	PlatformsScanned int `json:"platforms_scanned"`
+	NullTasksFailed  int `json:"null_tasks_failed"`
+}
 
-			DispatchPlatformUpdate(platform, taskChannelM, taskM)
-		}
-		common.SysLog(i18n.Translate("task_polling.completed"))
+// RunTaskPollingOnce performs one async-task (Suno/video) polling pass
+// synchronously. It honors ctx cancellation (the system-task runner cancels it
+// when the lease is lost) and, when report is non-nil, reports progress as
+// (processedPlatforms, totalPlatforms). It returns immediately if the task
+// adaptor factory has not been wired yet, to avoid a nil call during startup.
+func RunTaskPollingOnce(ctx context.Context, report func(processed, total int)) TaskPollSummary {
+	summary := TaskPollSummary{}
+	if GetTaskAdaptorFunc == nil {
+		return summary
 	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	common.SysLog(i18n.Translate("task_polling.started"))
+	sweepTimedOutTasks(ctx)
+	allTasks := model.GetAllUnFinishSyncTasks(constant.TaskQueryLimit)
+	summary.UnfinishedTasks = len(allTasks)
+	platformTask := make(map[constant.TaskPlatform][]*model.Task)
+	for _, t := range allTasks {
+		platformTask[t.Platform] = append(platformTask[t.Platform], t)
+	}
+
+	totalPlatforms := len(platformTask)
+	processedPlatforms := 0
+	for platform, tasks := range platformTask {
+		if ctx.Err() != nil {
+			break
+		}
+		if report != nil {
+			report(processedPlatforms, totalPlatforms)
+		}
+		processedPlatforms++
+		if len(tasks) == 0 {
+			continue
+		}
+		summary.PlatformsScanned++
+		taskChannelM := make(map[int][]string)
+		taskM := make(map[string]*model.Task)
+		nullTaskIds := make([]int64, 0)
+		for _, task := range tasks {
+			upstreamID := task.GetUpstreamTaskID()
+			if upstreamID == "" {
+				// 统计失败的未完成任务
+				nullTaskIds = append(nullTaskIds, task.ID)
+				continue
+			}
+			taskM[upstreamID] = task
+			taskChannelM[task.ChannelId] = append(taskChannelM[task.ChannelId], upstreamID)
+		}
+		if len(nullTaskIds) > 0 {
+			summary.NullTasksFailed += len(nullTaskIds)
+			err := model.TaskBulkUpdateByID(nullTaskIds, map[string]any{
+				"status":   "FAILURE",
+				"progress": "100%",
+			})
+			if err != nil {
+				logger.LogError(ctx, fmt.Sprintf(i18n.Translate("svc.fix_null_task_id_task_error"), err))
+			} else {
+				logger.LogInfo(ctx, fmt.Sprintf(i18n.Translate("svc.fix_null_task_id_task_success"), nullTaskIds))
+			}
+		}
+		if len(taskChannelM) == 0 {
+			continue
+		}
+
+		DispatchPlatformUpdate(ctx, platform, taskChannelM, taskM)
+	}
+	if report != nil && ctx.Err() == nil {
+		report(totalPlatforms, totalPlatforms)
+	}
+	common.SysLog(i18n.Translate("task_polling.completed"))
+	return summary
 }
 
 // DispatchPlatformUpdate 按平台分发轮询更新
-func DispatchPlatformUpdate(platform constant.TaskPlatform, taskChannelM map[int][]string, taskM map[string]*model.Task) {
+func DispatchPlatformUpdate(ctx context.Context, platform constant.TaskPlatform, taskChannelM map[int][]string, taskM map[string]*model.Task) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	switch platform {
 	case constant.TaskPlatformMidjourney:
 		// MJ 轮询由其自身处理，这里预留入口
 	case constant.TaskPlatformSuno:
-		_ = UpdateSunoTasks(context.Background(), taskChannelM, taskM)
+		_ = UpdateSunoTasks(ctx, taskChannelM, taskM)
 	default:
-		if err := UpdateVideoTasks(context.Background(), platform, taskChannelM, taskM); err != nil {
+		if err := UpdateVideoTasks(ctx, platform, taskChannelM, taskM); err != nil {
 			common.SysLog(fmt.Sprintf(i18n.Translate("svc.updatevideotasks_fail"), err))
 		}
 	}
@@ -156,6 +193,9 @@ func DispatchPlatformUpdate(platform constant.TaskPlatform, taskChannelM map[int
 // UpdateSunoTasks 按渠道更新所有 Suno 任务
 func UpdateSunoTasks(ctx context.Context, taskChannelM map[int][]string, taskM map[string]*model.Task) error {
 	for channelId, taskIds := range taskChannelM {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
 		err := updateSunoTasks(ctx, channelId, taskIds, taskM)
 		if err != nil {
 			logger.LogError(ctx, i18n.Translate("task_polling.channel_failed", map[string]any{"ChannelId": channelId, "Error": err.Error()}))
@@ -166,6 +206,9 @@ func UpdateSunoTasks(ctx context.Context, taskChannelM map[int][]string, taskM m
 
 func updateSunoTasks(ctx context.Context, channelId int, taskIds []string, taskM map[string]*model.Task) error {
 	logger.LogInfo(ctx, i18n.Translate("task_polling.channel_pending", map[string]any{"ChannelId": channelId, "Count": len(taskIds)}))
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
 	if len(taskIds) == 0 {
 		return nil
 	}
@@ -223,7 +266,14 @@ func updateSunoTasks(ctx context.Context, channelId int, taskIds []string, taskM
 	}
 
 	for _, responseItem := range responseItems.Data {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
 		task := taskM[responseItem.TaskID]
+		if task == nil {
+			logger.LogWarn(ctx, fmt.Sprintf("Suno task response ignored: unknown task_id=%s", responseItem.TaskID))
+			continue
+		}
 		if !taskNeedsUpdate(task, responseItem) {
 			continue
 		}
@@ -291,16 +341,40 @@ func taskNeedsUpdate(oldTask *model.Task, newTask dto.SunoDataResponse) bool {
 
 // UpdateVideoTasks 按渠道更新所有视频任务
 func UpdateVideoTasks(ctx context.Context, platform constant.TaskPlatform, taskChannelM map[int][]string, taskM map[string]*model.Task) error {
-	for channelId, taskIds := range taskChannelM {
-		if err := updateVideoTasks(ctx, platform, channelId, taskIds, taskM); err != nil {
-			logger.LogError(ctx, i18n.Translate("task_polling.channel_failed", map[string]any{"ChannelId": channelId, "Error": err.Error()}))
+	channelIDs := make([]int, 0, len(taskChannelM))
+	for channelID := range taskChannelM {
+		channelIDs = append(channelIDs, channelID)
+	}
+	sort.Ints(channelIDs)
+
+	var wg sync.WaitGroup
+	for _, channelId := range channelIDs {
+		taskIds := taskChannelM[channelId]
+		if len(taskIds) == 0 {
+			continue
 		}
+		taskIds = append([]string(nil), taskIds...)
+
+		wg.Add(1)
+		gopool.Go(func() {
+			defer wg.Done()
+			if err := updateVideoTasks(ctx, platform, channelId, taskIds, taskM); err != nil {
+				logger.LogError(ctx, i18n.Translate("task_polling.channel_failed", map[string]any{"ChannelId": channelId, "Error": err.Error()}))
+			}
+		})
+	}
+	wg.Wait()
+	if ctx.Err() != nil {
+		return ctx.Err()
 	}
 	return nil
 }
 
 func updateVideoTasks(ctx context.Context, platform constant.TaskPlatform, channelId int, taskIds []string, taskM map[string]*model.Task) error {
 	logger.LogInfo(ctx, i18n.Translate("task_polling.channel_pending", map[string]any{"ChannelId": channelId, "Count": len(taskIds)}))
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
 	if len(taskIds) == 0 {
 		return nil
 	}
@@ -333,17 +407,32 @@ func updateVideoTasks(ctx context.Context, platform constant.TaskPlatform, chann
 	}
 	info.ApiKey = cacheGetChannel.Key
 	adaptor.Init(info)
-	for _, taskId := range taskIds {
+	disablePollingSleep := cacheGetChannel.GetOtherSettings().DisableTaskPollingSleep
+	for i, taskId := range taskIds {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
 		if err := updateVideoSingleTask(ctx, adaptor, cacheGetChannel, taskId, taskM); err != nil {
 			logger.LogError(ctx, fmt.Sprintf(i18n.Translate("svc.failed_to_update_video_task"), taskId, err.Error()))
 		}
-		// sleep 1 second between each task to avoid hitting rate limits of upstream platforms
-		time.Sleep(1 * time.Second)
+		if disablePollingSleep || i == len(taskIds)-1 {
+			continue
+		}
+
+		// sleep 1 second between tasks for this channel only.
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(1 * time.Second):
+		}
 	}
 	return nil
 }
 
 func updateVideoSingleTask(ctx context.Context, adaptor TaskPollingAdaptor, ch *model.Channel, taskId string, taskM map[string]*model.Task) error {
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
 	baseURL := constant.ChannelBaseURLs[ch.Type]
 	if ch.GetBaseURL() != "" {
 		baseURL = ch.GetBaseURL()
@@ -361,14 +450,9 @@ func updateVideoSingleTask(ctx context.Context, adaptor TaskPollingAdaptor, ch *
 	if privateData.Key != "" {
 		key = privateData.Key
 	}
-	// Forward channel-level config the adapter needs to rebuild its strategy
-	// during polling. ComfyUI uses workflow_templates JSON to carry provider
-	// id (`runpod`/`fal`/etc.) and the upstream endpoint id (`app`); without
-	// these the runpod strategy can't construct the status URL.
 	resp, err := adaptor.FetchTask(baseURL, key, map[string]any{
-		"task_id":            task.GetUpstreamTaskID(),
-		"action":             task.Action,
-		"workflow_templates": ch.WorkflowTemplates,
+		"task_id": task.GetUpstreamTaskID(),
+		"action":  task.Action,
 	}, proxy)
 	if err != nil {
 		return fmt.Errorf(i18n.Translate("svc.fetchtask_failed_for_task"), taskId, err)
@@ -379,7 +463,7 @@ func updateVideoSingleTask(ctx context.Context, adaptor TaskPollingAdaptor, ch *
 		return fmt.Errorf(i18n.Translate("svc.readall_failed_for_task"), taskId, err)
 	}
 
-	logger.LogDebug(ctx, fmt.Sprintf(i18n.Translate("svc.updatevideosingletask_response"), string(responseBody)))
+	logger.LogDebug(ctx, "updateVideoSingleTask response: %s", responseBody)
 
 	snap := task.Snapshot()
 
@@ -387,7 +471,7 @@ func updateVideoSingleTask(ctx context.Context, adaptor TaskPollingAdaptor, ch *
 	// try parse as New API response format
 	var responseItems dto.TaskResponse[model.Task]
 	if err = common.Unmarshal(responseBody, &responseItems); err == nil && responseItems.IsSuccess() {
-		logger.LogDebug(ctx, fmt.Sprintf(i18n.Translate("svc.updatevideosingletask_parsed_as_new_api_response_format"), responseItems))
+		logger.LogDebug(ctx, "updateVideoSingleTask parsed as new api response format: %+v", responseItems)
 		t := responseItems.Data
 		taskResult.TaskID = t.TaskID
 		taskResult.Status = string(t.Status)
@@ -401,7 +485,7 @@ func updateVideoSingleTask(ctx context.Context, adaptor TaskPollingAdaptor, ch *
 
 	task.Data = redactVideoResponseBody(responseBody)
 
-	logger.LogDebug(ctx, fmt.Sprintf(i18n.Translate("svc.updatevideosingletask_taskresult"), taskResult))
+	logger.LogDebug(ctx, "updateVideoSingleTask taskResult: %+v", taskResult)
 
 	now := time.Now().Unix()
 	if taskResult.Status == "" {
@@ -446,25 +530,7 @@ func updateVideoSingleTask(ctx context.Context, adaptor TaskPollingAdaptor, ch *
 		if task.FinishTime == 0 {
 			task.FinishTime = now
 		}
-		// Multi-output (ComfyUI batch_size>1): every entry gets either its
-		// upstream CDN URL or a proxy URL with ?i=<idx> that resolves the
-		// data: URI sitting in task.Data.
-		if len(taskResult.Urls) > 0 {
-			urls := make([]string, len(taskResult.Urls))
-			for i, u := range taskResult.Urls {
-				if strings.HasPrefix(u, "data:") {
-					urls[i] = taskcommon.BuildProxyURL(task.TaskID) + "?index=" + strconv.Itoa(i)
-				} else if u != "" {
-					urls[i] = u
-				} else {
-					urls[i] = taskcommon.BuildProxyURL(task.TaskID) + "?index=" + strconv.Itoa(i)
-				}
-			}
-			task.PrivateData.ResultURLs = urls
-			// Keep ResultURL populated as the first entry for any caller
-			// that hasn't migrated to the multi shape yet.
-			task.PrivateData.ResultURL = urls[0]
-		} else if strings.HasPrefix(taskResult.Url, "data:") {
+		if strings.HasPrefix(taskResult.Url, "data:") {
 			// data: URI (e.g. Vertex base64 encoded video) — keep in Data, not in ResultURL
 			task.PrivateData.ResultURL = taskcommon.BuildProxyURL(task.TaskID)
 		} else if taskResult.Url != "" {
@@ -513,7 +579,7 @@ func updateVideoSingleTask(ctx context.Context, adaptor TaskPollingAdaptor, ch *
 		}
 	} else {
 		// No changes, skip update
-		logger.LogDebug(ctx, fmt.Sprintf(i18n.Translate("svc.no_update_needed_for_task"), task.TaskID))
+		logger.LogDebug(ctx, "No update needed for task %s", task.TaskID)
 	}
 
 	if shouldSettle {
