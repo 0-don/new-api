@@ -412,8 +412,19 @@ func shouldRetry(c *gin.Context, openaiErr *types.NewAPIError, retryTimes int) b
 // processed the request). Local new_api_error failures (no available channel,
 // invalid request, model-mapping, param-override, etc.) never reached an
 // upstream, so they are always refunded regardless of the toggle.
+//
+// Deterministic upstream rejections (400/415/422/451: malformed request,
+// unsupported param, validation, policy block) are ALSO always refunded even
+// though they carry an upstream error type: the upstream rejected the request
+// up front and did no billable work (zero tokens), so charging the user the
+// full pre-consumed estimate for a client-side mistake would be a phantom
+// charge. ChargeOnError is meant for requests the upstream actually processed
+// before failing, not for instant validation rejections.
 func shouldChargeOnError(err *types.NewAPIError) bool {
 	if err == nil || !operation_setting.GetQuotaSetting().ChargeOnError {
+		return false
+	}
+	if types.IsDeterministicUpstreamError(err) {
 		return false
 	}
 	return err.GetErrorType() != types.ErrorTypeNewAPIError
