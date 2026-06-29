@@ -44,6 +44,7 @@ auth.insufficient_privilege: "無權進行此操作，權限不足"
 # Token messages
 token.name_too_long: "令牌名稱過長"
 token.quota_negative: "額度值不能為負數"
+token.quota_must_be_positive: "權杖額度必須大於 0。如需免費層金鑰，請啟用無限額度。"
 token.quota_exceed_max: "額度值超出有效範圍，最大值為 {{.Max}}"
 token.generate_failed: "生成令牌失敗"
 token.get_info_failed: "獲取令牌資訊失敗，請稍後重試"

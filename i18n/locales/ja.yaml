@@ -32,6 +32,7 @@ common.db_test_failed: "データベース接続に失敗しました"
 # Token related messages
 token.name_too_long: "トークン名が長すぎます"
 token.quota_negative: "クォータ値は負の値にできません"
+token.quota_must_be_positive: "トークンのクォータは0より大きい必要があります。無料枠のキーには無制限クォータを有効にしてください。"
 token.quota_exceed_max: "クォータ値が有効範囲を超えています。最大値は{{.Max}}です"
 token.generate_failed: "トークンの生成に失敗しました"
 token.get_info_failed: "トークン情報の取得に失敗しました。後でもう一度お試しください"

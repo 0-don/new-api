@@ -434,11 +434,21 @@ func TokenAuth() func(c *gin.Context) {
 			}
 		}
 		if err != nil {
-			if errors.Is(err, model.ErrDatabase) {
+			switch {
+			case errors.Is(err, model.ErrDatabase):
 				common.SysLog("TokenAuth ValidateUserToken database error: " + err.Error())
 				abortWithOpenAiMessage(c, http.StatusInternalServerError,
 					common.TranslateMessage(c, i18n.MsgDatabaseError))
-			} else {
+			case errors.Is(err, model.ErrTokenExhausted):
+				abortWithOpenAiMessage(c, http.StatusPaymentRequired,
+					common.TranslateMessage(c, i18n.MsgQuotaInsufficient))
+			case errors.Is(err, model.ErrTokenExpired):
+				abortWithOpenAiMessage(c, http.StatusUnauthorized,
+					common.TranslateMessage(c, i18n.MsgTokenExpired))
+			case errors.Is(err, model.ErrTokenDisabled):
+				abortWithOpenAiMessage(c, http.StatusUnauthorized,
+					common.TranslateMessage(c, i18n.MsgTokenStatusUnavailable))
+			default:
 				abortWithOpenAiMessage(c, http.StatusUnauthorized,
 					common.TranslateMessage(c, i18n.MsgTokenInvalid))
 			}

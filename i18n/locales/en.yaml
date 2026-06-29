@@ -44,6 +44,7 @@ auth.insufficient_privilege: "Unauthorized, insufficient privileges"
 # Token messages
 token.name_too_long: "Token name is too long"
 token.quota_negative: "Quota value cannot be negative"
+token.quota_must_be_positive: "Token quota must be greater than 0. Enable unlimited quota for a free-tier key."
 token.quota_exceed_max: "Quota value exceeds valid range, maximum is {{.Max}}"
 token.generate_failed: "Failed to generate token"
 token.get_info_failed: "Failed to get token info, please try again later"

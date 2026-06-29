@@ -32,6 +32,7 @@ common.db_test_failed: "Échec de la connexion à la base de données"
 # Token related messages
 token.name_too_long: "Le nom du jeton est trop long"
 token.quota_negative: "La valeur du quota ne peut pas être négative"
+token.quota_must_be_positive: "Le quota du jeton doit être supérieur à 0. Activez le quota illimité pour une clé de palier gratuit."
 token.quota_exceed_max: "La valeur du quota dépasse la plage valide, le maximum est {{.Max}}"
 token.generate_failed: "Échec de la génération du jeton"
 token.get_info_failed: "Impossible d'obtenir les informations du jeton, veuillez réessayer plus tard"

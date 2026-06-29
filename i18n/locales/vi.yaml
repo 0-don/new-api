@@ -32,6 +32,7 @@ common.db_test_failed: "Không thể kết nối cơ sở dữ liệu"
 # Token related messages
 token.name_too_long: "Tên token quá dài"
 token.quota_negative: "Giá trị hạn mức không được âm"
+token.quota_must_be_positive: "Hạn mức token phải lớn hơn 0. Bật hạn mức không giới hạn cho khóa bậc miễn phí."
 token.quota_exceed_max: "Giá trị hạn mức vượt phạm vi hợp lệ, tối đa là {{.Max}}"
 token.generate_failed: "Không thể tạo token"
 token.get_info_failed: "Không thể lấy thông tin token, vui lòng thử lại sau"

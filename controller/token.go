@@ -143,8 +143,8 @@ func AddToken(c fuego.ContextWithBody[dto.CreateTokenRequest]) (dto.MessageRespo
 		return dto.FailMsg(common.TranslateMessage(dto.GinCtx(c), "token.name_too_long"))
 	}
 	if !token.UnlimitedQuota {
-		if token.RemainQuota < 0 {
-			return dto.FailMsg(common.TranslateMessage(dto.GinCtx(c), "token.quota_negative"))
+		if token.RemainQuota <= 0 {
+			return dto.FailMsg(common.TranslateMessage(dto.GinCtx(c), "token.quota_must_be_positive"))
 		}
 		maxQuotaValue := int((1000000000 * common.QuotaPerUnit))
 		if token.RemainQuota > maxQuotaValue {
@@ -205,8 +205,8 @@ func UpdateToken(c fuego.Context[dto.UpdateTokenRequest, dto.StatusOnlyParams]) 
 		return dto.Fail[model.Token](common.TranslateMessage(dto.GinCtx(c), "token.name_too_long"))
 	}
 	if !token.UnlimitedQuota {
-		if token.RemainQuota < 0 {
-			return dto.Fail[model.Token](common.TranslateMessage(dto.GinCtx(c), "token.quota_negative"))
+		if token.RemainQuota <= 0 {
+			return dto.Fail[model.Token](common.TranslateMessage(dto.GinCtx(c), "token.quota_must_be_positive"))
 		}
 		maxQuotaValue := int((1000000000 * common.QuotaPerUnit))
 		if token.RemainQuota > maxQuotaValue {
