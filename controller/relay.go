@@ -430,7 +430,7 @@ func shouldChargeOnError(err *types.NewAPIError) bool {
 	return err.GetErrorType() != types.ErrorTypeNewAPIError
 }
 
-func processChannelError(c *gin.Context, channelError types.ChannelError, err *types.NewAPIError) {
+func processChannelError(c *gin.Context, channelError types.ChannelError, err *types.NewAPIError, statusOpts ...model.ChannelStatusChangeOpt) {
 	if c.Request != nil && c.Request.Context().Err() != nil {
 		return
 	}
@@ -438,8 +438,15 @@ func processChannelError(c *gin.Context, channelError types.ChannelError, err *t
 	// 不要使用context获取渠道信息，异步处理时可能会出现渠道信息不一致的情况
 	// do not use context to get channel info, there may be inconsistent channel info when processing asynchronously
 	if service.ShouldDisableChannel(err) && channelError.AutoBan {
+		// Default the status-history trigger to a live relay request; the
+		// scheduled-test caller overrides it via statusOpts. Model name comes
+		// from the request context when present.
+		opts := append([]model.ChannelStatusChangeOpt{
+			model.WithChannelStatusTrigger(model.ChannelStatusTriggerLiveRequest),
+			model.WithChannelStatusModel(c.GetString("original_model")),
+		}, statusOpts...)
 		gopool.Go(func() {
-			service.DisableChannel(channelError, err.ErrorWithStatusCode())
+			service.DisableChannel(channelError, err.ErrorWithStatusCode(), opts...)
 		})
 	}
 

@@ -25,7 +25,7 @@ func translatef(key string, fallback string, args ...any) string {
 }
 
 // disable & notify
-func DisableChannel(channelError types.ChannelError, reason string) {
+func DisableChannel(channelError types.ChannelError, reason string, opts ...model.ChannelStatusChangeOpt) {
 	common.SysLog(translatef("svc.channel_error_occurred_preparing_to_disable_reason", "Channel '%s' (#%d) error occurred, preparing to disable. Reason: %s", channelError.ChannelName, channelError.ChannelId, common.LocalLogPreview(reason)))
 
 	// 检查是否启用自动禁用功能
@@ -34,7 +34,7 @@ func DisableChannel(channelError types.ChannelError, reason string) {
 		return
 	}
 
-	success := model.UpdateChannelStatus(channelError.ChannelId, channelError.UsingKey, common.ChannelStatusAutoDisabled, reason)
+	success := model.UpdateChannelStatus(channelError.ChannelId, channelError.UsingKey, common.ChannelStatusAutoDisabled, reason, opts...)
 	if success && operation_setting.GetMonitorSetting().ChannelStatusNotifyEnabled {
 		subject := translatef("svc.channel_has_been_disabled", "Channel '%s' (#%d) has been disabled", channelError.ChannelName, channelError.ChannelId)
 		content := translatef("svc.channel_has_been_disabled_reason", "Channel '%s' (#%d) has been disabled, reason: %s", channelError.ChannelName, channelError.ChannelId, reason)
@@ -42,8 +42,8 @@ func DisableChannel(channelError types.ChannelError, reason string) {
 	}
 }
 
-func EnableChannel(channelId int, usingKey string, channelName string) {
-	success := model.UpdateChannelStatus(channelId, usingKey, common.ChannelStatusEnabled, "")
+func EnableChannel(channelId int, usingKey string, channelName string, opts ...model.ChannelStatusChangeOpt) {
+	success := model.UpdateChannelStatus(channelId, usingKey, common.ChannelStatusEnabled, "", opts...)
 	if success && operation_setting.GetMonitorSetting().ChannelStatusNotifyEnabled {
 		subject := translatef("svc.channel_has_been_enabled", "Channel '%s' (#%d) has been enabled", channelName, channelId)
 		content := translatef("svc.channel_has_been_enabled_dc21", "Channel '%s' (#%d) has been enabled", channelName, channelId)

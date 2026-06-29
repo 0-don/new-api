@@ -18,6 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import {
   Activity,
+  History,
   Box,
   CreditCard,
   FileText,
@@ -122,6 +123,11 @@ export function useSidebarData(): SidebarData {
             title: t('Channels'),
             url: '/channels',
             icon: Radio,
+          },
+          {
+            title: t('Channel Status History'),
+            url: '/channel-status-history',
+            icon: History,
           },
           {
             title: t('Models'),

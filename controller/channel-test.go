@@ -945,13 +945,19 @@ func performChannelTests(ctx context.Context, channels []*model.Channel, testUse
 
 		// disable channel
 		if allowDisable && isChannelEnabled && shouldBanChannel && channel.GetAutoBan() {
-			processChannelError(result.context, *types.NewChannelError(channel.Id, channel.Type, channel.Name, channel.ChannelInfo.IsMultiKey, common.GetContextKeyString(result.context, constant.ContextKeyChannelKey), channel.GetAutoBan()), newAPIError)
+			processChannelError(result.context, *types.NewChannelError(channel.Id, channel.Type, channel.Name, channel.ChannelInfo.IsMultiKey, common.GetContextKeyString(result.context, constant.ContextKeyChannelKey), channel.GetAutoBan()), newAPIError,
+				model.WithChannelStatusTrigger(model.ChannelStatusTriggerScheduledTest),
+				model.WithChannelStatusModel(testModel),
+				model.WithChannelStatusResponseTime(int(milliseconds)))
 			summary.Disabled++
 		}
 
 		// enable channel
 		if result.localErr == nil && !isChannelEnabled && service.ShouldEnableChannel(newAPIError, channel.Status) {
-			service.EnableChannel(channel.Id, common.GetContextKeyString(result.context, constant.ContextKeyChannelKey), channel.Name)
+			service.EnableChannel(channel.Id, common.GetContextKeyString(result.context, constant.ContextKeyChannelKey), channel.Name,
+				model.WithChannelStatusTrigger(model.ChannelStatusTriggerScheduledTest),
+				model.WithChannelStatusModel(testModel),
+				model.WithChannelStatusResponseTime(int(milliseconds)))
 			summary.Enabled++
 		}
 

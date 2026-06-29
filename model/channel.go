@@ -15,6 +15,7 @@ import (
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/types"
 
+	"github.com/bytedance/gopkg/util/gopool"
 	"github.com/samber/lo"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -704,7 +705,66 @@ func hasEnabledMultiKey(keys []string, statusList map[int]int) bool {
 	return false
 }
 
-func UpdateChannelStatus(channelId int, usingKey string, status int, reason string) bool {
+// channelStatusChange carries the optional debug context for a status flip so
+// it can be recorded in channel_status_histories. Callers that have the context
+// (relay error path, scheduled test, manual admin action) supply it via the
+// WithChannelStatus* options; callers that do not get sensible defaults.
+type channelStatusChange struct {
+	triggerSource  string
+	modelName      string
+	responseTimeMs int
+}
+
+type ChannelStatusChangeOpt func(*channelStatusChange)
+
+func WithChannelStatusTrigger(source string) ChannelStatusChangeOpt {
+	return func(c *channelStatusChange) { c.triggerSource = source }
+}
+
+func WithChannelStatusModel(modelName string) ChannelStatusChangeOpt {
+	return func(c *channelStatusChange) { c.modelName = modelName }
+}
+
+func WithChannelStatusResponseTime(ms int) ChannelStatusChangeOpt {
+	return func(c *channelStatusChange) { c.responseTimeMs = ms }
+}
+
+// recordChannelStatusHistory builds and async-inserts a history row for a
+// channel that just transitioned fromStatus -> toStatus. Fire-and-forget: never
+// blocks or fails the status flip.
+func recordChannelStatusHistory(channel *Channel, fromStatus, toStatus int, reason string, multiKeyIndex int, meta channelStatusChange) {
+	baseURL := ""
+	if channel.BaseURL != nil {
+		baseURL = *channel.BaseURL
+	}
+	source := meta.triggerSource
+	if source == "" {
+		source = ChannelStatusTriggerLiveRequest
+	}
+	row := &ChannelStatusHistory{
+		ChannelId:      channel.Id,
+		ChannelName:    channel.Name,
+		ChannelType:    channel.Type,
+		BaseURL:        baseURL,
+		Group:          channel.Group,
+		FromStatus:     fromStatus,
+		ToStatus:       toStatus,
+		StatusReason:   reason,
+		ModelName:      meta.modelName,
+		TriggerSource:  source,
+		ResponseTimeMs: meta.responseTimeMs,
+		MultiKeyIndex:  multiKeyIndex,
+	}
+	gopool.Go(func() {
+		InsertChannelStatusHistory(row)
+	})
+}
+
+func UpdateChannelStatus(channelId int, usingKey string, status int, reason string, opts ...ChannelStatusChangeOpt) bool {
+	var meta channelStatusChange
+	for _, o := range opts {
+		o(&meta)
+	}
 	if common.MemoryCacheEnabled {
 		channelStatusLock.Lock()
 		defer channelStatusLock.Unlock()
@@ -752,6 +812,9 @@ func UpdateChannelStatus(channelId int, usingKey string, status int, reason stri
 			return false
 		}
 
+		fromStatus := channel.Status
+		multiKeyIndex := -1
+		statusChanged := true
 		if channel.ChannelInfo.IsMultiKey {
 			beforeStatus := channel.Status
 			// Protect map writes with the same per-channel lock used by readers
@@ -761,6 +824,8 @@ func UpdateChannelStatus(channelId int, usingKey string, status int, reason stri
 			pollingLock.Unlock()
 			if beforeStatus != channel.Status {
 				shouldUpdateAbilities = true
+			} else {
+				statusChanged = false
 			}
 		} else {
 			info := channel.GetOtherInfo()
@@ -774,6 +839,9 @@ func UpdateChannelStatus(channelId int, usingKey string, status int, reason stri
 		if err != nil {
 			common.SysLog(fmt.Sprintf("failed to update channel status: channel_id=%d, status=%d, error=%v", channel.Id, status, err))
 			return false
+		}
+		if statusChanged {
+			recordChannelStatusHistory(channel, fromStatus, status, reason, multiKeyIndex, meta)
 		}
 	}
 	return true

@@ -365,7 +365,7 @@ func updateAllChannelsBalance() error {
 		} else {
 			// err is nil & balance <= 0 means quota is used up
 			if balance <= 0 {
-				service.DisableChannel(*types.NewChannelError(channel.Id, channel.Type, channel.Name, channel.ChannelInfo.IsMultiKey, "", channel.GetAutoBan()), i18n.Translate("billing.insufficient_balance"))
+				service.DisableChannel(*types.NewChannelError(channel.Id, channel.Type, channel.Name, channel.ChannelInfo.IsMultiKey, "", channel.GetAutoBan()), i18n.Translate("billing.insufficient_balance"), model.WithChannelStatusTrigger(model.ChannelStatusTriggerBalance))
 			}
 		}
 		time.Sleep(common.RequestInterval)

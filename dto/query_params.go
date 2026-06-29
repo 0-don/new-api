@@ -10,6 +10,26 @@ type EmailParams struct {
 	Email string `query:"email" description:"Email address"`
 }
 
+type GetChannelStatusHistoryParams struct {
+	ChannelId      int    `query:"channel_id"      description:"Filter by channel ID"`
+	ToStatus       int    `query:"to_status"       description:"Filter by resulting status (1 enabled / 2 manual disabled / 3 auto disabled)"`
+	TriggerSource  string `query:"trigger_source"  description:"Filter by trigger source (live_request|scheduled_test|manual|by_tag|balance)"`
+	StatusCode     int    `query:"status_code"     description:"Filter by parsed upstream HTTP status code"`
+	ModelName      string `query:"model_name"      description:"Filter by triggering model name"`
+	StartTimestamp int64  `query:"start_timestamp"`
+	EndTimestamp   int64  `query:"end_timestamp"`
+}
+
+type GetChannelFlapStatsParams struct {
+	StartTimestamp int64  `query:"start_timestamp" description:"Window start (unix seconds); defaults to last 7 days"`
+	OrderBy        string `query:"order_by"        description:"Sort: transitions|uptime|downtime (default transitions)"`
+	Limit          int    `query:"limit"           description:"Max channels returned (0 = all)"`
+}
+
+type PruneChannelStatusHistoryParams struct {
+	BeforeTimestamp int64 `query:"before_timestamp" description:"Delete transitions older than this unix-second cutoff"`
+}
+
 type TopUpSearchParams struct {
 	Keyword string `query:"keyword" description:"Search keyword"`
 }

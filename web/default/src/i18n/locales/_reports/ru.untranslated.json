@@ -1,0 +1,22 @@
+{
+  "Channel Status History": "Channel Status History",
+  "History": "History",
+  "Channel Analytics": "Channel Analytics",
+  "Time in Previous Status": "Time in Previous Status",
+  "No Status History": "No Status History",
+  "No channel status changes recorded yet. Transitions appear here as channels are enabled or disabled.": "No channel status changes recorded yet. Transitions appear here as channels are enabled or disabled.",
+  "Transitions": "Transitions",
+  "Disables": "Disables",
+  "Total Downtime": "Total Downtime",
+  "Current": "Current",
+  "Most Flapping": "Most Flapping",
+  "Worst Uptime": "Worst Uptime",
+  "Most Downtime": "Most Downtime",
+  "No channel status changes recorded yet.": "No channel status changes recorded yet.",
+  "Manually Disabled": "Manually Disabled",
+  "live_request": "live_request",
+  "scheduled_test": "scheduled_test",
+  "manual": "manual",
+  "by_tag": "by_tag",
+  "balance": "balance"
+}
