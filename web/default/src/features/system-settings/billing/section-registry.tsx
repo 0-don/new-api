@@ -161,6 +161,16 @@ const BILLING_SECTIONS = [
           CreemWebhookSecret: settings.CreemWebhookSecret,
           CreemTestMode: settings.CreemTestMode,
           CreemModerationEnabled: settings.CreemModerationEnabled ?? false,
+          ModerationApiKey: settings.ModerationApiKey ?? '',
+          ModerationBaseUrl:
+            settings.ModerationBaseUrl ?? 'https://api.openai.com',
+          ModerationModel: settings.ModerationModel ?? 'omni-moderation-latest',
+          ModerationProviders: settings.ModerationProviders ?? 'openai,creem',
+          ModerationCategoryThresholds:
+            settings.ModerationCategoryThresholds ?? '{}',
+          ModerationDefaultThreshold: settings.ModerationDefaultThreshold ?? 0.8,
+          ModerationFailOpen: settings.ModerationFailOpen ?? true,
+          ModerationMaxInputChars: settings.ModerationMaxInputChars ?? 8000,
           CreemProducts: settings.CreemProducts,
           NowPaymentsEnabled: settings.NowPaymentsEnabled ?? false,
           NowPaymentsApiKey: settings.NowPaymentsApiKey ?? '',

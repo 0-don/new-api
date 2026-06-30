@@ -99,6 +99,14 @@ func InitOptionMap() {
 	common.OptionMap["CreemTestMode"] = strconv.FormatBool(setting.CreemTestMode)
 	common.OptionMap["CreemWebhookSecret"] = setting.CreemWebhookSecret
 	common.OptionMap["CreemModerationEnabled"] = strconv.FormatBool(setting.CreemModerationEnabled)
+	common.OptionMap["ModerationApiKey"] = setting.ModerationApiKey
+	common.OptionMap["ModerationBaseUrl"] = setting.ModerationBaseUrl
+	common.OptionMap["ModerationModel"] = setting.ModerationModel
+	common.OptionMap["ModerationProviders"] = setting.ModerationProviders
+	common.OptionMap["ModerationCategoryThresholds"] = setting.ModerationCategoryThresholds
+	common.OptionMap["ModerationDefaultThreshold"] = strconv.FormatFloat(setting.ModerationDefaultThreshold, 'f', -1, 64)
+	common.OptionMap["ModerationFailOpen"] = strconv.FormatBool(setting.ModerationFailOpen)
+	common.OptionMap["ModerationMaxInputChars"] = strconv.Itoa(setting.ModerationMaxInputChars)
 	common.OptionMap["NowPaymentsEnabled"] = strconv.FormatBool(setting.NowPaymentsEnabled)
 	common.OptionMap["NowPaymentsApiKey"] = setting.NowPaymentsApiKey
 	common.OptionMap["NowPaymentsIpnSecret"] = setting.NowPaymentsIpnSecret
@@ -473,6 +481,22 @@ func updateOptionMap(key string, value string) (err error) {
 		setting.CreemWebhookSecret = value
 	case "CreemModerationEnabled":
 		setting.CreemModerationEnabled = value == "true"
+	case "ModerationApiKey":
+		setting.ModerationApiKey = value
+	case "ModerationBaseUrl":
+		setting.ModerationBaseUrl = value
+	case "ModerationModel":
+		setting.ModerationModel = value
+	case "ModerationProviders":
+		setting.ModerationProviders = value
+	case "ModerationCategoryThresholds":
+		setting.ModerationCategoryThresholds = value
+	case "ModerationDefaultThreshold":
+		setting.ModerationDefaultThreshold, _ = strconv.ParseFloat(value, 64)
+	case "ModerationFailOpen":
+		setting.ModerationFailOpen = value == "true"
+	case "ModerationMaxInputChars":
+		setting.ModerationMaxInputChars, _ = strconv.Atoi(value)
 	case "NowPaymentsApiKey":
 		setting.NowPaymentsApiKey = value
 	case "NowPaymentsIpnSecret":

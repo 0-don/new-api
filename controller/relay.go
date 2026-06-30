@@ -75,6 +75,37 @@ func isModeratableRelayMode(mode int) bool {
 	}
 }
 
+// moderationGateError maps a moderation result to a client error and, on a
+// denial, records a user-visible error log (LogTypeError) so the prompt's
+// rejection - including the triggering category and score - shows up in the
+// user's usage logs. Returns nil when modErr is nil (allowed).
+func moderationGateError(c *gin.Context, relayInfo *relaycommon.RelayInfo, surface string, modErr error) *types.NewAPIError {
+	if modErr == nil {
+		return nil
+	}
+	if errors.Is(modErr, service.ErrPromptDenied) {
+		reason := service.ModerationDenyReason(modErr)
+		if reason == "" {
+			reason = "Prompt rejected by content moderation."
+		}
+		other := map[string]interface{}{
+			"error_type":   "moderation_rejected",
+			"surface":      surface,
+			"request_path": c.Request.URL.Path,
+		}
+		if denyErr := new(service.ModerationDenyError); errors.As(modErr, &denyErr) {
+			other["moderation_category"] = denyErr.Category
+			other["moderation_score"] = denyErr.Score
+			other["moderation_threshold"] = denyErr.Threshold
+		}
+		model.RecordErrorLog(c, relayInfo.UserId, c.GetInt("channel_id"),
+			c.GetString("original_model"), c.GetString("token_name"), reason,
+			c.GetInt("token_id"), 0, false, c.GetString("group"), other)
+		return types.NewErrorWithStatusCode(errors.New(reason), types.ErrorCodeInvalidRequest, http.StatusBadRequest, types.ErrOptionWithSkipRetry(), types.ErrOptionWithNoRecordErrorLog())
+	}
+	return types.NewErrorWithStatusCode(modErr, types.ErrorCodeBadResponse, http.StatusServiceUnavailable, types.ErrOptionWithSkipRetry())
+}
+
 func geminiRelayHandler(c *gin.Context, info *relaycommon.RelayInfo) *types.NewAPIError {
 	var err *types.NewAPIError
 	if strings.Contains(c.Request.URL.Path, "embed") {
@@ -166,9 +197,10 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		}
 	}
 
-	// CREEM prompt moderation for image generation (merchant-of-record requirement).
-	// Runs before upstream dispatch; fails closed when enabled. Image prompt is meta.CombineText.
-	if service.CreemModerationEnabled() &&
+	// Image-generation moderation (merchant-of-record content-safety requirement).
+	// Screens the image prompt through OpenAI omni-moderation before dispatch; fails
+	// closed when enabled. Image prompt is meta.CombineText.
+	if setting.CreemModerationEnabled &&
 		(relayInfo.RelayMode == relayconstant.RelayModeImagesGenerations ||
 			relayInfo.RelayMode == relayconstant.RelayModeImagesEdits) {
 		moderationMeta := meta
@@ -179,30 +211,20 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		if moderationMeta != nil {
 			prompt = moderationMeta.CombineText
 		}
-		externalID := fmt.Sprintf("%d:%s", relayInfo.UserId, requestId)
-		if modErr := service.AssertCreemPromptAllowed(c.Request.Context(), prompt, externalID); modErr != nil {
-			if errors.Is(modErr, service.ErrCreemPromptDenied) {
-				newAPIError = types.NewErrorWithStatusCode(modErr, types.ErrorCodeInvalidRequest, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
-			} else {
-				newAPIError = types.NewErrorWithStatusCode(modErr, types.ErrorCodeBadResponse, http.StatusServiceUnavailable, types.ErrOptionWithSkipRetry())
-			}
+		if modErr := service.AssertPromptAllowed(c.Request.Context(), prompt); modErr != nil {
+			newAPIError = moderationGateError(c, relayInfo, "image", modErr)
 			return
 		}
 	}
 
-	// CREEM prompt moderation for Stripe strict mode - gates text AND image
-	// generation (Stripe MoR holds the merchant liable for AI outputs across text +
-	// imagery). Dynamic: only when StripeTextModerationEnabled is on; applies to all
-	// traffic, free + paid. meta.CombineText is the prompt. (Image is also covered by
-	// the Creem image gate above; they never run simultaneously, so no double-screen.)
+	// Stripe strict-mode moderation - gates text AND image generation (Stripe MoR
+	// holds the merchant liable for AI outputs across text + imagery). Dynamic: only
+	// when StripeTextModerationEnabled is on; applies to all traffic, free + paid.
+	// meta.CombineText is the prompt. (Image is also covered by the image gate above;
+	// they never run simultaneously, so no double-screen.)
 	if needStripeModeration && meta != nil {
-		externalID := fmt.Sprintf("%d:%s", relayInfo.UserId, requestId)
-		if modErr := service.AssertCreemPromptAllowed(c.Request.Context(), meta.CombineText, externalID); modErr != nil {
-			if errors.Is(modErr, service.ErrCreemPromptDenied) {
-				newAPIError = types.NewErrorWithStatusCode(modErr, types.ErrorCodeInvalidRequest, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
-			} else {
-				newAPIError = types.NewErrorWithStatusCode(modErr, types.ErrorCodeBadResponse, http.StatusServiceUnavailable, types.ErrOptionWithSkipRetry())
-			}
+		if modErr := service.AssertPromptAllowed(c.Request.Context(), meta.CombineText); modErr != nil {
+			newAPIError = moderationGateError(c, relayInfo, "text", modErr)
 			return
 		}
 	}

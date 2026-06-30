@@ -20,6 +20,7 @@ import (
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/relay/helper"
 	"github.com/QuantumNous/new-api/service"
+	"github.com/QuantumNous/new-api/setting"
 	"github.com/gin-gonic/gin"
 )
 
@@ -159,18 +160,28 @@ func RelayTaskSubmit(c *gin.Context, info *relaycommon.RelayInfo) (*TaskSubmitRe
 		return nil, taskErr
 	}
 
-	// CREEM prompt moderation for video generation (merchant-of-record requirement).
+	// Video-generation moderation (merchant-of-record content-safety requirement).
 	// Runs before pre-consume billing so a denied prompt is never charged. Suno (audio)
-	// is excluded; the prompt is read generically from the task request body.
-	if service.CreemModerationEnabled() && platform != constant.TaskPlatformSuno {
+	// is excluded; the prompt is read generically from the task request body and screened
+	// through OpenAI omni-moderation.
+	if setting.CreemModerationEnabled && platform != constant.TaskPlatformSuno {
 		var taskReq struct {
 			Prompt string `json:"prompt"`
 		}
 		_ = common.UnmarshalBodyReusable(c, &taskReq)
-		externalID := fmt.Sprintf("%d:%s", info.UserId, info.RequestId)
-		if modErr := service.AssertCreemPromptAllowed(c.Request.Context(), taskReq.Prompt, externalID); modErr != nil {
-			if errors.Is(modErr, service.ErrCreemPromptDenied) {
-				return nil, service.TaskErrorWrapperLocal(modErr, "prompt_rejected", http.StatusBadRequest)
+		if modErr := service.AssertPromptAllowed(c.Request.Context(), taskReq.Prompt); modErr != nil {
+			if errors.Is(modErr, service.ErrPromptDenied) {
+				reason := service.ModerationDenyReason(modErr)
+				other := map[string]interface{}{"error_type": "moderation_rejected", "surface": "video"}
+				if denyErr := new(service.ModerationDenyError); errors.As(modErr, &denyErr) {
+					other["moderation_category"] = denyErr.Category
+					other["moderation_score"] = denyErr.Score
+					other["moderation_threshold"] = denyErr.Threshold
+				}
+				model.RecordErrorLog(c, info.UserId, c.GetInt("channel_id"),
+					c.GetString("original_model"), c.GetString("token_name"), reason,
+					c.GetInt("token_id"), 0, false, c.GetString("group"), other)
+				return nil, service.TaskErrorWrapperLocal(errors.New(reason), "prompt_rejected", http.StatusBadRequest)
 			}
 			return nil, service.TaskErrorWrapperLocal(modErr, "moderation_unavailable", http.StatusServiceUnavailable)
 		}

@@ -309,6 +309,14 @@ export type BillingSettings = {
   CreemWebhookSecret: string
   CreemTestMode: boolean
   CreemModerationEnabled: boolean
+  ModerationApiKey: string
+  ModerationBaseUrl: string
+  ModerationModel: string
+  ModerationProviders: string
+  ModerationCategoryThresholds: string
+  ModerationDefaultThreshold: number
+  ModerationFailOpen: boolean
+  ModerationMaxInputChars: number
   CreemProducts: string
   NowPaymentsEnabled: boolean
   NowPaymentsApiKey: string

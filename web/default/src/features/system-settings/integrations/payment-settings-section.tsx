@@ -151,6 +151,20 @@ const paymentSchema = z.object({
   CreemWebhookSecret: z.string(),
   CreemTestMode: z.boolean(),
   CreemModerationEnabled: z.boolean(),
+  ModerationApiKey: z.string(),
+  ModerationBaseUrl: z.string(),
+  ModerationModel: z.string(),
+  ModerationProviders: z.string(),
+  ModerationCategoryThresholds: z.string().superRefine((value, ctx) => {
+    if (!value) return
+    const error = getJsonError(value, (parsed) => typeof parsed === 'object')
+    if (error) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: error })
+    }
+  }),
+  ModerationDefaultThreshold: z.coerce.number().min(0).max(1),
+  ModerationFailOpen: z.boolean(),
+  ModerationMaxInputChars: z.coerce.number().min(0),
   CreemProducts: z.string().superRefine((value, ctx) => {
     const error = getJsonError(value, (parsed) => Array.isArray(parsed))
     if (error) {
@@ -451,6 +465,14 @@ export function PaymentSettingsSection({
       CreemWebhookSecret: values.CreemWebhookSecret.trim(),
       CreemTestMode: values.CreemTestMode,
       CreemModerationEnabled: values.CreemModerationEnabled,
+      ModerationApiKey: values.ModerationApiKey.trim(),
+      ModerationBaseUrl: values.ModerationBaseUrl.trim(),
+      ModerationModel: values.ModerationModel.trim(),
+      ModerationProviders: values.ModerationProviders.trim(),
+      ModerationCategoryThresholds: values.ModerationCategoryThresholds.trim(),
+      ModerationDefaultThreshold: values.ModerationDefaultThreshold,
+      ModerationFailOpen: values.ModerationFailOpen,
+      ModerationMaxInputChars: values.ModerationMaxInputChars,
       CreemProducts: values.CreemProducts.trim(),
       NowPaymentsEnabled: values.NowPaymentsEnabled,
       NowPaymentsApiKey: values.NowPaymentsApiKey.trim(),
@@ -511,6 +533,15 @@ export function PaymentSettingsSection({
       CreemWebhookSecret: initialRef.current.CreemWebhookSecret.trim(),
       CreemTestMode: initialRef.current.CreemTestMode,
       CreemModerationEnabled: initialRef.current.CreemModerationEnabled,
+      ModerationApiKey: initialRef.current.ModerationApiKey.trim(),
+      ModerationBaseUrl: initialRef.current.ModerationBaseUrl.trim(),
+      ModerationModel: initialRef.current.ModerationModel.trim(),
+      ModerationProviders: initialRef.current.ModerationProviders.trim(),
+      ModerationCategoryThresholds:
+        initialRef.current.ModerationCategoryThresholds.trim(),
+      ModerationDefaultThreshold: initialRef.current.ModerationDefaultThreshold,
+      ModerationFailOpen: initialRef.current.ModerationFailOpen,
+      ModerationMaxInputChars: initialRef.current.ModerationMaxInputChars,
       CreemProducts: initialRef.current.CreemProducts.trim(),
       NowPaymentsEnabled: initialRef.current.NowPaymentsEnabled,
       NowPaymentsApiKey: initialRef.current.NowPaymentsApiKey.trim(),
@@ -687,6 +718,68 @@ export function PaymentSettingsSection({
       updates.push({
         key: 'CreemModerationEnabled',
         value: sanitized.CreemModerationEnabled,
+      })
+    }
+
+    if (
+      sanitized.ModerationApiKey &&
+      sanitized.ModerationApiKey !== initial.ModerationApiKey
+    ) {
+      updates.push({
+        key: 'ModerationApiKey',
+        value: sanitized.ModerationApiKey,
+      })
+    }
+
+    if (sanitized.ModerationBaseUrl !== initial.ModerationBaseUrl) {
+      updates.push({
+        key: 'ModerationBaseUrl',
+        value: sanitized.ModerationBaseUrl,
+      })
+    }
+
+    if (sanitized.ModerationModel !== initial.ModerationModel) {
+      updates.push({ key: 'ModerationModel', value: sanitized.ModerationModel })
+    }
+
+    if (sanitized.ModerationProviders !== initial.ModerationProviders) {
+      updates.push({
+        key: 'ModerationProviders',
+        value: sanitized.ModerationProviders,
+      })
+    }
+
+    if (
+      normalizeJsonForComparison(sanitized.ModerationCategoryThresholds) !==
+      normalizeJsonForComparison(initial.ModerationCategoryThresholds)
+    ) {
+      updates.push({
+        key: 'ModerationCategoryThresholds',
+        value: sanitized.ModerationCategoryThresholds,
+      })
+    }
+
+    if (
+      sanitized.ModerationDefaultThreshold !==
+      initial.ModerationDefaultThreshold
+    ) {
+      updates.push({
+        key: 'ModerationDefaultThreshold',
+        value: sanitized.ModerationDefaultThreshold,
+      })
+    }
+
+    if (sanitized.ModerationFailOpen !== initial.ModerationFailOpen) {
+      updates.push({
+        key: 'ModerationFailOpen',
+        value: sanitized.ModerationFailOpen,
+      })
+    }
+
+    if (sanitized.ModerationMaxInputChars !== initial.ModerationMaxInputChars) {
+      updates.push({
+        key: 'ModerationMaxInputChars',
+        value: sanitized.ModerationMaxInputChars,
       })
     }
 
@@ -1920,10 +2013,10 @@ export function PaymentSettingsSection({
                     render={({ field }) => (
                       <SettingsSwitchItem>
                         <SettingsSwitchContent>
-                          <FormLabel>{t('Content Moderation')}</FormLabel>
+                          <FormLabel>{t('Text Moderation')}</FormLabel>
                           <FormDescription>
                             {t(
-                              'Screen text and image generation prompts through moderation before generation. Enable when using Managed Payments.'
+                              'Screen text and image generation prompts through the moderation backend (configured in the Creem tab) before relay. Enable when using Managed Payments.'
                             )}
                           </FormDescription>
                         </SettingsSwitchContent>
@@ -2045,10 +2138,12 @@ export function PaymentSettingsSection({
                   render={({ field }) => (
                     <SettingsSwitchItem>
                       <SettingsSwitchContent>
-                        <FormLabel>{t('Content Moderation')}</FormLabel>
+                        <FormLabel>
+                          {t('Image & Video Moderation')}
+                        </FormLabel>
                         <FormDescription>
                           {t(
-                            'Screen image and video prompts through the Creem moderation API before generation'
+                            'Screen image and video prompts through the moderation backend below before generation'
                           )}
                         </FormDescription>
                       </SettingsSwitchContent>
@@ -2061,6 +2156,228 @@ export function PaymentSettingsSection({
                     </SettingsSwitchItem>
                   )}
                 />
+
+                <div className='rounded-lg border border-border p-4'>
+                  <div className='mb-4'>
+                    <FormLabel className='text-base'>
+                      {t('Moderation Backend')}
+                    </FormLabel>
+                    <FormDescription>
+                      {t(
+                        'OpenAI omni-moderation endpoint used by both gates above (image/video and Stripe text moderation). Vendor-neutral; uses its own key, not a payment processor.'
+                      )}
+                    </FormDescription>
+                  </div>
+
+                  <FormField
+                    control={form.control}
+                    name='ModerationProviders'
+                    render={({ field }) => (
+                      <FormItem className='mb-6'>
+                        <FormLabel>{t('Provider Priority')}</FormLabel>
+                        <FormControl>
+                          <Input
+                            placeholder='openai,creem'
+                            {...field}
+                            onChange={(event) =>
+                              field.onChange(event.target.value)
+                            }
+                          />
+                        </FormControl>
+                        <FormDescription>
+                          {t(
+                            'Comma-separated moderation backends in priority order. The first to return a decision wins; on rate-limit/outage the next is tried. Each runs only if its key is set (openai = key above, creem = Creem API key).'
+                          )}
+                        </FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  <div className='grid gap-6 md:grid-cols-2'>
+                    <FormField
+                      control={form.control}
+                      name='ModerationApiKey'
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>{t('Moderation API Key')}</FormLabel>
+                          <FormControl>
+                            <Input
+                              type='password'
+                              placeholder={t('Enter OpenAI API key')}
+                              autoComplete='new-password'
+                              {...field}
+                              onChange={(event) =>
+                                field.onChange(event.target.value)
+                              }
+                            />
+                          </FormControl>
+                          <FormDescription>
+                            {t(
+                              'OpenAI API key for /v1/moderations (leave blank unless updating)'
+                            )}
+                          </FormDescription>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+
+                    <FormField
+                      control={form.control}
+                      name='ModerationBaseUrl'
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>{t('Moderation Base URL')}</FormLabel>
+                          <FormControl>
+                            <Input
+                              placeholder='https://api.openai.com'
+                              {...field}
+                              onChange={(event) =>
+                                field.onChange(event.target.value)
+                              }
+                            />
+                          </FormControl>
+                          <FormDescription>
+                            {t(
+                              'OpenAI-compatible base URL; /v1/moderations is appended'
+                            )}
+                          </FormDescription>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+
+                    <FormField
+                      control={form.control}
+                      name='ModerationModel'
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>{t('Moderation Model')}</FormLabel>
+                          <FormControl>
+                            <Input
+                              placeholder='omni-moderation-latest'
+                              {...field}
+                              onChange={(event) =>
+                                field.onChange(event.target.value)
+                              }
+                            />
+                          </FormControl>
+                          <FormDescription>
+                            {t('Moderation model name')}
+                          </FormDescription>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+
+                    <FormField
+                      control={form.control}
+                      name='ModerationDefaultThreshold'
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>
+                            {t('Default Block Threshold')}
+                          </FormLabel>
+                          <FormControl>
+                            <Input
+                              type='number'
+                              step='0.01'
+                              min='0'
+                              max='1'
+                              {...field}
+                              onChange={(event) =>
+                                field.onChange(event.target.value)
+                              }
+                            />
+                          </FormControl>
+                          <FormDescription>
+                            {t(
+                              'Score (0-1) that blocks any category not listed below. Lower = stricter.'
+                            )}
+                          </FormDescription>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+
+                    <FormField
+                      control={form.control}
+                      name='ModerationMaxInputChars'
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>{t('Max Input Characters')}</FormLabel>
+                          <FormControl>
+                            <Input
+                              type='number'
+                              min='0'
+                              {...field}
+                              onChange={(event) =>
+                                field.onChange(event.target.value)
+                              }
+                            />
+                          </FormControl>
+                          <FormDescription>
+                            {t(
+                              'Only the last N characters of the prompt are screened (the newest turn). Caps token cost and avoids 429s on long chats. 0 = no limit.'
+                            )}
+                          </FormDescription>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                  </div>
+
+                  <FormField
+                    control={form.control}
+                    name='ModerationFailOpen'
+                    render={({ field }) => (
+                      <SettingsSwitchItem className='mt-6'>
+                        <SettingsSwitchContent>
+                          <FormLabel>
+                            {t('Fail Open on Backend Error')}
+                          </FormLabel>
+                          <FormDescription>
+                            {t(
+                              'When the moderation backend is unreachable or rate-limited, allow the request through instead of blocking it. Content denials still block. Off = strict (block on any backend error).'
+                            )}
+                          </FormDescription>
+                        </SettingsSwitchContent>
+                        <FormControl>
+                          <Switch
+                            checked={field.value}
+                            onCheckedChange={field.onChange}
+                          />
+                        </FormControl>
+                      </SettingsSwitchItem>
+                    )}
+                  />
+
+                  <FormField
+                    control={form.control}
+                    name='ModerationCategoryThresholds'
+                    render={({ field }) => (
+                      <FormItem className='mt-6'>
+                        <FormLabel>{t('Category Thresholds')}</FormLabel>
+                        <FormControl>
+                          <Textarea
+                            rows={4}
+                            placeholder='{"sexual/minors":0.2,"sexual":0.92}'
+                            {...field}
+                            onChange={(event) =>
+                              field.onChange(event.target.value)
+                            }
+                          />
+                        </FormControl>
+                        <FormDescription>
+                          {t(
+                            'JSON map of OpenAI moderation category to its block threshold (0-1). Hard-block CSAM at a low value; raise sexual/violence to let legal fiction pass.'
+                          )}
+                        </FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </div>
 
                 <FormField
                   control={form.control}
