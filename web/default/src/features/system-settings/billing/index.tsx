@@ -82,6 +82,8 @@ const defaultBillingSettings: BillingSettings = {
   StripeUnitPrice: 8.0,
   StripeMinTopUp: 1,
   StripePromotionCodesEnabled: false,
+  StripeManagedPayments: false,
+  StripeTextModerationEnabled: false,
   CreemEnabled: true,
   CreemApiKey: '',
   CreemWebhookSecret: '',

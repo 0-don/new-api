@@ -56,6 +56,25 @@ func relayHandler(c *gin.Context, info *relaycommon.RelayInfo) *types.NewAPIErro
 	return err
 }
 
+// isModeratableRelayMode reports whether a relay mode generates content that
+// Stripe strict-mode moderation should screen: text (chat/completions/responses)
+// AND image generation/edits. Stripe prohibits adult/AI content across text and
+// imagery, so both are gated. Audio/embeddings carry no such content. (Video task
+// submission flows through RelayTask, gated separately there.)
+func isModeratableRelayMode(mode int) bool {
+	switch mode {
+	case relayconstant.RelayModeChatCompletions,
+		relayconstant.RelayModeCompletions,
+		relayconstant.RelayModeResponses,
+		relayconstant.RelayModeResponsesCompact,
+		relayconstant.RelayModeImagesGenerations,
+		relayconstant.RelayModeImagesEdits:
+		return true
+	default:
+		return false
+	}
+}
+
 func geminiRelayHandler(c *gin.Context, info *relaycommon.RelayInfo) *types.NewAPIError {
 	var err *types.NewAPIError
 	if strings.Contains(c.Request.URL.Path, "embed") {
@@ -126,9 +145,13 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 
 	needSensitiveCheck := setting.ShouldCheckPromptSensitive()
 	needCountToken := constant.CountToken
+	// Stripe strict-mode moderation gates ALL generation (text + image + video) -
+	// Stripe prohibits adult/AI content across "literature, pictures and other media",
+	// so every generative surface is screened, not just text. Needs CombineText built.
+	needStripeModeration := setting.StripeTextModerationEnabled && isModeratableRelayMode(relayInfo.RelayMode)
 	// Avoid building huge CombineText (strings.Join) when token counting and sensitive check are both disabled.
 	var meta *types.TokenCountMeta
-	if needSensitiveCheck || needCountToken {
+	if needSensitiveCheck || needCountToken || needStripeModeration {
 		meta = request.GetTokenCountMeta()
 	} else {
 		meta = fastTokenCountMetaForPricing(request)
@@ -158,6 +181,23 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		}
 		externalID := fmt.Sprintf("%d:%s", relayInfo.UserId, requestId)
 		if modErr := service.AssertCreemPromptAllowed(c.Request.Context(), prompt, externalID); modErr != nil {
+			if errors.Is(modErr, service.ErrCreemPromptDenied) {
+				newAPIError = types.NewErrorWithStatusCode(modErr, types.ErrorCodeInvalidRequest, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
+			} else {
+				newAPIError = types.NewErrorWithStatusCode(modErr, types.ErrorCodeBadResponse, http.StatusServiceUnavailable, types.ErrOptionWithSkipRetry())
+			}
+			return
+		}
+	}
+
+	// CREEM prompt moderation for Stripe strict mode - gates text AND image
+	// generation (Stripe MoR holds the merchant liable for AI outputs across text +
+	// imagery). Dynamic: only when StripeTextModerationEnabled is on; applies to all
+	// traffic, free + paid. meta.CombineText is the prompt. (Image is also covered by
+	// the Creem image gate above; they never run simultaneously, so no double-screen.)
+	if needStripeModeration && meta != nil {
+		externalID := fmt.Sprintf("%d:%s", relayInfo.UserId, requestId)
+		if modErr := service.AssertCreemPromptAllowed(c.Request.Context(), meta.CombineText, externalID); modErr != nil {
 			if errors.Is(modErr, service.ErrCreemPromptDenied) {
 				newAPIError = types.NewErrorWithStatusCode(modErr, types.ErrorCodeInvalidRequest, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
 			} else {

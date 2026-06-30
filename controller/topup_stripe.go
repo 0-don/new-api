@@ -335,6 +335,8 @@ func genStripeLink(referenceId string, customerId string, email string, amount i
 		params.Customer = stripe.String(customerId)
 	}
 
+	applyStripeManagedPayments(params)
+
 	result, err := session.New(params)
 	if err != nil {
 		return "", err

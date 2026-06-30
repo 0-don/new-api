@@ -302,6 +302,8 @@ export type BillingSettings = {
   StripeUnitPrice: number
   StripeMinTopUp: number
   StripePromotionCodesEnabled: boolean
+  StripeManagedPayments: boolean
+  StripeTextModerationEnabled: boolean
   CreemEnabled: boolean
   CreemApiKey: string
   CreemWebhookSecret: string

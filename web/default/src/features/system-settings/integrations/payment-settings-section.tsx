@@ -145,6 +145,8 @@ const paymentSchema = z.object({
   StripeUnitPrice: z.coerce.number().min(0),
   StripeMinTopUp: z.coerce.number().min(0),
   StripePromotionCodesEnabled: z.boolean(),
+  StripeManagedPayments: z.boolean(),
+  StripeTextModerationEnabled: z.boolean(),
   CreemApiKey: z.string(),
   CreemWebhookSecret: z.string(),
   CreemTestMode: z.boolean(),
@@ -443,6 +445,8 @@ export function PaymentSettingsSection({
       StripeUnitPrice: values.StripeUnitPrice,
       StripeMinTopUp: values.StripeMinTopUp,
       StripePromotionCodesEnabled: values.StripePromotionCodesEnabled,
+      StripeManagedPayments: values.StripeManagedPayments,
+      StripeTextModerationEnabled: values.StripeTextModerationEnabled,
       CreemApiKey: values.CreemApiKey.trim(),
       CreemWebhookSecret: values.CreemWebhookSecret.trim(),
       CreemTestMode: values.CreemTestMode,
@@ -500,6 +504,9 @@ export function PaymentSettingsSection({
       StripeMinTopUp: initialRef.current.StripeMinTopUp,
       StripePromotionCodesEnabled:
         initialRef.current.StripePromotionCodesEnabled,
+      StripeManagedPayments: initialRef.current.StripeManagedPayments,
+      StripeTextModerationEnabled:
+        initialRef.current.StripeTextModerationEnabled,
       CreemApiKey: initialRef.current.CreemApiKey.trim(),
       CreemWebhookSecret: initialRef.current.CreemWebhookSecret.trim(),
       CreemTestMode: initialRef.current.CreemTestMode,
@@ -624,6 +631,23 @@ export function PaymentSettingsSection({
 
     if (sanitized.StripeMinTopUp !== initial.StripeMinTopUp) {
       updates.push({ key: 'StripeMinTopUp', value: sanitized.StripeMinTopUp })
+    }
+
+    if (sanitized.StripeManagedPayments !== initial.StripeManagedPayments) {
+      updates.push({
+        key: 'StripeManagedPayments',
+        value: sanitized.StripeManagedPayments,
+      })
+    }
+
+    if (
+      sanitized.StripeTextModerationEnabled !==
+      initial.StripeTextModerationEnabled
+    ) {
+      updates.push({
+        key: 'StripeTextModerationEnabled',
+        value: sanitized.StripeTextModerationEnabled,
+      })
     }
 
     if (
@@ -1853,6 +1877,54 @@ export function PaymentSettingsSection({
                           <FormLabel>{t('Promotion codes')}</FormLabel>
                           <FormDescription>
                             {t('Allow users to enter promo codes')}
+                          </FormDescription>
+                        </SettingsSwitchContent>
+                        <FormControl>
+                          <Switch
+                            checked={field.value}
+                            onCheckedChange={field.onChange}
+                          />
+                        </FormControl>
+                      </SettingsSwitchItem>
+                    )}
+                  />
+
+                  <FormField
+                    control={form.control}
+                    name='StripeManagedPayments'
+                    render={({ field }) => (
+                      <SettingsSwitchItem>
+                        <SettingsSwitchContent>
+                          <FormLabel>
+                            {t('Managed Payments (Merchant of Record)')}
+                          </FormLabel>
+                          <FormDescription>
+                            {t(
+                              'Use Stripe as merchant of record (handles tax, VAT, disputes). Adds a 3.5% fee. Requires code integration.'
+                            )}
+                          </FormDescription>
+                        </SettingsSwitchContent>
+                        <FormControl>
+                          <Switch
+                            checked={field.value}
+                            onCheckedChange={field.onChange}
+                          />
+                        </FormControl>
+                      </SettingsSwitchItem>
+                    )}
+                  />
+
+                  <FormField
+                    control={form.control}
+                    name='StripeTextModerationEnabled'
+                    render={({ field }) => (
+                      <SettingsSwitchItem>
+                        <SettingsSwitchContent>
+                          <FormLabel>{t('Content Moderation')}</FormLabel>
+                          <FormDescription>
+                            {t(
+                              'Screen text and image generation prompts through moderation before generation. Enable when using Managed Payments.'
+                            )}
                           </FormDescription>
                         </SettingsSwitchContent>
                         <FormControl>

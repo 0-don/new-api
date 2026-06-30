@@ -91,6 +91,8 @@ func InitOptionMap() {
 	common.OptionMap["StripePriceId"] = setting.StripePriceId
 	common.OptionMap["StripeUnitPrice"] = strconv.FormatFloat(setting.StripeUnitPrice, 'f', -1, 64)
 	common.OptionMap["StripePromotionCodesEnabled"] = strconv.FormatBool(setting.StripePromotionCodesEnabled)
+	common.OptionMap["StripeManagedPayments"] = strconv.FormatBool(setting.StripeManagedPayments)
+	common.OptionMap["StripeTextModerationEnabled"] = strconv.FormatBool(setting.StripeTextModerationEnabled)
 	common.OptionMap["CreemEnabled"] = strconv.FormatBool(setting.CreemEnabled)
 	common.OptionMap["CreemApiKey"] = setting.CreemApiKey
 	common.OptionMap["CreemProducts"] = setting.CreemProducts
@@ -457,6 +459,10 @@ func updateOptionMap(key string, value string) (err error) {
 		setting.StripeMinTopUp, _ = strconv.Atoi(value)
 	case "StripePromotionCodesEnabled":
 		setting.StripePromotionCodesEnabled = value == "true"
+	case "StripeManagedPayments":
+		setting.StripeManagedPayments = value == "true"
+	case "StripeTextModerationEnabled":
+		setting.StripeTextModerationEnabled = value == "true"
 	case "CreemApiKey":
 		setting.CreemApiKey = value
 	case "CreemProducts":

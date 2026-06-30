@@ -3,6 +3,7 @@ package controller
 import (
 	"fmt"
 	"log"
+	"net/http"
 	"strings"
 	"time"
 
@@ -17,6 +18,24 @@ import (
 	"github.com/stripe/stripe-go/v81/checkout/session"
 	"github.com/thanhpk/randstr"
 )
+
+// Managed Payments requires API version 2025-03-31.basil or later; the v81 SDK
+// pins 2025-02-24.acacia, so the version is overridden per-request via the header.
+const stripeManagedPaymentsAPIVersion = "2025-03-31.basil"
+
+// applyStripeManagedPayments conditionally turns a Checkout Session into a
+// Managed-Payments (merchant-of-record) session when the toggle is on. No-op
+// otherwise, so normal Stripe sessions are unaffected.
+func applyStripeManagedPayments(params *stripe.CheckoutSessionParams) {
+	if !setting.StripeManagedPayments {
+		return
+	}
+	params.AddExtra("managed_payments[enabled]", "true")
+	if params.Headers == nil {
+		params.Headers = http.Header{}
+	}
+	params.Headers.Set("Stripe-Version", stripeManagedPaymentsAPIVersion)
+}
 
 func SubscriptionRequestStripePay(c fuego.ContextWithBody[dto.SubscriptionStripePayRequest]) (*dto.Response[dto.StripePayLinkData], error) {
 	ginCtx := dto.GinCtx(c)
@@ -115,6 +134,8 @@ func genStripeSubscriptionLink(referenceId string, customerId string, email stri
 	} else {
 		params.Customer = stripe.String(customerId)
 	}
+
+	applyStripeManagedPayments(params)
 
 	result, err := session.New(params)
 	if err != nil {
