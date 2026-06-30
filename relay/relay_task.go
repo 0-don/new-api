@@ -169,7 +169,7 @@ func RelayTaskSubmit(c *gin.Context, info *relaycommon.RelayInfo) (*TaskSubmitRe
 			Prompt string `json:"prompt"`
 		}
 		_ = common.UnmarshalBodyReusable(c, &taskReq)
-		if modErr := service.AssertPromptAllowed(c.Request.Context(), taskReq.Prompt); modErr != nil {
+		if modErr := service.AssertPromptAllowed(c.Request.Context(), service.ModerationSurfaceVideo, taskReq.Prompt); modErr != nil {
 			if errors.Is(modErr, service.ErrPromptDenied) {
 				reason := service.ModerationDenyReason(modErr)
 				other := map[string]interface{}{"error_type": "moderation_rejected", "surface": "video"}

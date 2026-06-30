@@ -154,7 +154,8 @@ const paymentSchema = z.object({
   ModerationApiKey: z.string(),
   ModerationBaseUrl: z.string(),
   ModerationModel: z.string(),
-  ModerationProviders: z.string(),
+  ModerationProvidersText: z.string(),
+  ModerationProvidersMedia: z.string(),
   ModerationCategoryThresholds: z.string().superRefine((value, ctx) => {
     if (!value) return
     const error = getJsonError(value, (parsed) => typeof parsed === 'object')
@@ -468,7 +469,8 @@ export function PaymentSettingsSection({
       ModerationApiKey: values.ModerationApiKey.trim(),
       ModerationBaseUrl: values.ModerationBaseUrl.trim(),
       ModerationModel: values.ModerationModel.trim(),
-      ModerationProviders: values.ModerationProviders.trim(),
+      ModerationProvidersText: values.ModerationProvidersText.trim(),
+      ModerationProvidersMedia: values.ModerationProvidersMedia.trim(),
       ModerationCategoryThresholds: values.ModerationCategoryThresholds.trim(),
       ModerationDefaultThreshold: values.ModerationDefaultThreshold,
       ModerationFailOpen: values.ModerationFailOpen,
@@ -536,7 +538,9 @@ export function PaymentSettingsSection({
       ModerationApiKey: initialRef.current.ModerationApiKey.trim(),
       ModerationBaseUrl: initialRef.current.ModerationBaseUrl.trim(),
       ModerationModel: initialRef.current.ModerationModel.trim(),
-      ModerationProviders: initialRef.current.ModerationProviders.trim(),
+      ModerationProvidersText: initialRef.current.ModerationProvidersText.trim(),
+      ModerationProvidersMedia:
+        initialRef.current.ModerationProvidersMedia.trim(),
       ModerationCategoryThresholds:
         initialRef.current.ModerationCategoryThresholds.trim(),
       ModerationDefaultThreshold: initialRef.current.ModerationDefaultThreshold,
@@ -742,10 +746,21 @@ export function PaymentSettingsSection({
       updates.push({ key: 'ModerationModel', value: sanitized.ModerationModel })
     }
 
-    if (sanitized.ModerationProviders !== initial.ModerationProviders) {
+    if (
+      sanitized.ModerationProvidersText !== initial.ModerationProvidersText
+    ) {
       updates.push({
-        key: 'ModerationProviders',
-        value: sanitized.ModerationProviders,
+        key: 'ModerationProvidersText',
+        value: sanitized.ModerationProvidersText,
+      })
+    }
+
+    if (
+      sanitized.ModerationProvidersMedia !== initial.ModerationProvidersMedia
+    ) {
+      updates.push({
+        key: 'ModerationProvidersMedia',
+        value: sanitized.ModerationProvidersMedia,
       })
     }
 
@@ -2169,30 +2184,57 @@ export function PaymentSettingsSection({
                     </FormDescription>
                   </div>
 
-                  <FormField
-                    control={form.control}
-                    name='ModerationProviders'
-                    render={({ field }) => (
-                      <FormItem className='mb-6'>
-                        <FormLabel>{t('Provider Priority')}</FormLabel>
-                        <FormControl>
-                          <Input
-                            placeholder='openai,creem'
-                            {...field}
-                            onChange={(event) =>
-                              field.onChange(event.target.value)
-                            }
-                          />
-                        </FormControl>
-                        <FormDescription>
-                          {t(
-                            'Comma-separated moderation backends in priority order. The first to return a decision wins; on rate-limit/outage the next is tried. Each runs only if its key is set (openai = key above, creem = Creem API key).'
-                          )}
-                        </FormDescription>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
+                  <div className='mb-6 grid gap-6 md:grid-cols-2'>
+                    <FormField
+                      control={form.control}
+                      name='ModerationProvidersText'
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>{t('Text Providers')}</FormLabel>
+                          <FormControl>
+                            <Input
+                              placeholder='openai'
+                              {...field}
+                              onChange={(event) =>
+                                field.onChange(event.target.value)
+                              }
+                            />
+                          </FormControl>
+                          <FormDescription>
+                            {t(
+                              'Backend priority for TEXT prompts (comma-separated). Default openai; Creem is image/video-oriented and is not recommended for chat text.'
+                            )}
+                          </FormDescription>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+
+                    <FormField
+                      control={form.control}
+                      name='ModerationProvidersMedia'
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>{t('Image & Video Providers')}</FormLabel>
+                          <FormControl>
+                            <Input
+                              placeholder='openai,creem'
+                              {...field}
+                              onChange={(event) =>
+                                field.onChange(event.target.value)
+                              }
+                            />
+                          </FormControl>
+                          <FormDescription>
+                            {t(
+                              'Backend priority for IMAGE/VIDEO prompts (comma-separated). First to return a decision wins; on rate-limit/outage the next is tried. Each runs only if its key is set.'
+                            )}
+                          </FormDescription>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                  </div>
 
                   <div className='grid gap-6 md:grid-cols-2'>
                     <FormField

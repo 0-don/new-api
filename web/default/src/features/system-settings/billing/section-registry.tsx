@@ -165,7 +165,9 @@ const BILLING_SECTIONS = [
           ModerationBaseUrl:
             settings.ModerationBaseUrl ?? 'https://api.openai.com',
           ModerationModel: settings.ModerationModel ?? 'omni-moderation-latest',
-          ModerationProviders: settings.ModerationProviders ?? 'openai,creem',
+          ModerationProvidersText: settings.ModerationProvidersText ?? 'openai',
+          ModerationProvidersMedia:
+            settings.ModerationProvidersMedia ?? 'openai,creem',
           ModerationCategoryThresholds:
             settings.ModerationCategoryThresholds ?? '{}',
           ModerationDefaultThreshold: settings.ModerationDefaultThreshold ?? 0.8,

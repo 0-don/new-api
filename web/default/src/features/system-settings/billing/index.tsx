@@ -92,7 +92,8 @@ const defaultBillingSettings: BillingSettings = {
   ModerationApiKey: '',
   ModerationBaseUrl: 'https://api.openai.com',
   ModerationModel: 'omni-moderation-latest',
-  ModerationProviders: 'openai,creem',
+  ModerationProvidersText: 'openai',
+  ModerationProvidersMedia: 'openai,creem',
   ModerationCategoryThresholds:
     '{"sexual/minors":0.2,"self-harm/instructions":0.5,"illicit/violent":0.6,"hate/threatening":0.6,"sexual":0.92,"violence":0.97,"violence/graphic":0.95,"harassment":0.97}',
   ModerationDefaultThreshold: 0.8,

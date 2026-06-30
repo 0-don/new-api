@@ -211,8 +211,8 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		if moderationMeta != nil {
 			prompt = moderationMeta.CombineText
 		}
-		if modErr := service.AssertPromptAllowed(c.Request.Context(), prompt); modErr != nil {
-			newAPIError = moderationGateError(c, relayInfo, "image", modErr)
+		if modErr := service.AssertPromptAllowed(c.Request.Context(), service.ModerationSurfaceImage, prompt); modErr != nil {
+			newAPIError = moderationGateError(c, relayInfo, service.ModerationSurfaceImage, modErr)
 			return
 		}
 	}
@@ -220,11 +220,17 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 	// Stripe strict-mode moderation - gates text AND image generation (Stripe MoR
 	// holds the merchant liable for AI outputs across text + imagery). Dynamic: only
 	// when StripeTextModerationEnabled is on; applies to all traffic, free + paid.
-	// meta.CombineText is the prompt. (Image is also covered by the image gate above;
-	// they never run simultaneously, so no double-screen.)
+	// meta.CombineText is the prompt. The surface picks the provider chain: image
+	// modes use the media chain (OpenAI->Creem), text modes the text chain (OpenAI).
+	// (Image is also covered by the image gate above; they never run simultaneously.)
 	if needStripeModeration && meta != nil {
-		if modErr := service.AssertPromptAllowed(c.Request.Context(), meta.CombineText); modErr != nil {
-			newAPIError = moderationGateError(c, relayInfo, "text", modErr)
+		surface := service.ModerationSurfaceText
+		if relayInfo.RelayMode == relayconstant.RelayModeImagesGenerations ||
+			relayInfo.RelayMode == relayconstant.RelayModeImagesEdits {
+			surface = service.ModerationSurfaceImage
+		}
+		if modErr := service.AssertPromptAllowed(c.Request.Context(), surface, meta.CombineText); modErr != nil {
+			newAPIError = moderationGateError(c, relayInfo, surface, modErr)
 			return
 		}
 	}

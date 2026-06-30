@@ -312,7 +312,8 @@ export type BillingSettings = {
   ModerationApiKey: string
   ModerationBaseUrl: string
   ModerationModel: string
-  ModerationProviders: string
+  ModerationProvidersText: string
+  ModerationProvidersMedia: string
   ModerationCategoryThresholds: string
   ModerationDefaultThreshold: number
   ModerationFailOpen: boolean

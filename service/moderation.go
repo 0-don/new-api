@@ -84,24 +84,33 @@ type moderationProvider interface {
 	screen(ctx context.Context, prompt string) (moderationOutcome, error)
 }
 
-// AssertPromptAllowed screens a generation prompt through the configured
-// moderation provider chain. No-op when the prompt is empty. Returns
-// ErrPromptDenied (a *ModerationDenyError) when a provider blocks, and applies
-// the fail-open/closed policy only when every enabled provider fails
-// operationally. Callers gate this behind their own per-surface enable flag.
-func AssertPromptAllowed(ctx context.Context, prompt string) error {
+// Moderation surfaces. The provider chain is chosen per surface so text and
+// image/video can route to different backends (e.g. Creem's prompt-moderation API
+// is built for image/video, not chat text).
+const (
+	ModerationSurfaceText  = "text"
+	ModerationSurfaceImage = "image"
+	ModerationSurfaceVideo = "video"
+)
+
+// AssertPromptAllowed screens a generation prompt through the provider chain
+// configured for the given surface ("text", "image", or "video"). No-op when the
+// prompt is empty. Returns ErrPromptDenied (a *ModerationDenyError) when a provider
+// blocks, and applies the fail-open/closed policy only when every enabled provider
+// fails operationally. Callers gate this behind their own per-surface enable flag.
+func AssertPromptAllowed(ctx context.Context, surface, prompt string) error {
 	if prompt == "" {
 		return nil
 	}
 
 	var enabled []moderationProvider
-	for _, p := range orderedModerationProviders() {
+	for _, p := range orderedModerationProviders(surface) {
 		if p.enabled() {
 			enabled = append(enabled, p)
 		}
 	}
 	if len(enabled) == 0 {
-		return moderationOperationalFailure("no moderation provider configured")
+		return moderationOperationalFailure(fmt.Sprintf("no moderation provider configured for %s", surface))
 	}
 
 	prompt = truncateModerationInput(prompt)
@@ -110,27 +119,34 @@ func AssertPromptAllowed(ctx context.Context, prompt string) error {
 	for _, p := range enabled {
 		outcome, err := p.screen(ctx, prompt)
 		if err != nil {
-			common.SysError(fmt.Sprintf("moderation provider %s failed: %s; trying next", p.name(), err.Error()))
+			common.SysError(fmt.Sprintf("moderation provider %s failed (%s): %s; trying next", p.name(), surface, err.Error()))
 			lastOpErr = err
 			continue
 		}
 		if outcome.denied {
-			common.SysLog(fmt.Sprintf("moderation denied by %s: category=%s score=%.3f threshold=%.3f", p.name(), outcome.category, outcome.score, outcome.threshold))
+			common.SysLog(fmt.Sprintf("moderation denied by %s (%s): category=%s score=%.3f threshold=%.3f", p.name(), surface, outcome.category, outcome.score, outcome.threshold))
 			return &ModerationDenyError{Category: outcome.category, Score: outcome.score, Threshold: outcome.threshold}
 		}
 		return nil
 	}
 
-	return moderationOperationalFailure(fmt.Sprintf("all moderation providers failed (last: %v)", lastOpErr))
+	return moderationOperationalFailure(fmt.Sprintf("all %s moderation providers failed (last: %v)", surface, lastOpErr))
 }
 
-// orderedModerationProviders maps setting.ModerationProviders (a comma-separated
-// priority list) to provider instances, ignoring unknown tokens and de-duping.
-// Falls back to OpenAI-then-Creem when the setting is empty.
-func orderedModerationProviders() []moderationProvider {
-	spec := strings.TrimSpace(setting.ModerationProviders)
+// orderedModerationProviders maps the surface's configured provider list (a
+// comma-separated priority list) to provider instances, ignoring unknown tokens
+// and de-duping. Text uses setting.ModerationProvidersText (OpenAI only by
+// default); image/video use setting.ModerationProvidersMedia (OpenAI then Creem).
+func orderedModerationProviders(surface string) []moderationProvider {
+	var spec, fallback string
+	if surface == ModerationSurfaceText {
+		spec, fallback = setting.ModerationProvidersText, "openai"
+	} else {
+		spec, fallback = setting.ModerationProvidersMedia, "openai,creem"
+	}
+	spec = strings.TrimSpace(spec)
 	if spec == "" {
-		spec = "openai,creem"
+		spec = fallback
 	}
 	seen := map[string]bool{}
 	result := make([]moderationProvider, 0, 2)

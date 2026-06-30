@@ -9,13 +9,18 @@ var ModerationApiKey = ""
 var ModerationBaseUrl = "https://api.openai.com"
 var ModerationModel = "omni-moderation-latest"
 
-// ModerationProviders is the comma-separated priority order of moderation backends
-// to try. Each is used only if its credentials are configured (openai ->
-// ModerationApiKey, creem -> CreemApiKey). The first provider returning a clean
-// allow/deny decision wins; operational failures (rate-limit/timeout/bad response)
-// fall through to the next. Default: OpenAI first (free, multimodal), Creem as
-// fallback (no daily request cap, covers OpenAI Tier-1 limits).
-var ModerationProviders = "openai,creem"
+// ModerationProvidersText / ModerationProvidersMedia are the comma-separated
+// priority order of moderation backends to try, per surface. Each backend runs
+// only if its credentials are configured (openai -> ModerationApiKey, creem ->
+// CreemApiKey). The first provider returning a clean allow/deny decision wins;
+// operational failures (rate-limit/timeout/bad response) fall through to the next,
+// and if all fail the ModerationFailOpen policy applies.
+//
+// Text defaults to OpenAI only - Creem's prompt-moderation API is built for
+// image/video, not chat text, so chat text is not routed to it. Image/video
+// default to OpenAI (multimodal, free) then Creem as fallback.
+var ModerationProvidersText = "openai"
+var ModerationProvidersMedia = "openai,creem"
 
 // ModerationCategoryThresholds maps an OpenAI moderation category to the minimum
 // category_score (0-1) that blocks the request. A prompt is denied when ANY

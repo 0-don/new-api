@@ -102,7 +102,8 @@ func InitOptionMap() {
 	common.OptionMap["ModerationApiKey"] = setting.ModerationApiKey
 	common.OptionMap["ModerationBaseUrl"] = setting.ModerationBaseUrl
 	common.OptionMap["ModerationModel"] = setting.ModerationModel
-	common.OptionMap["ModerationProviders"] = setting.ModerationProviders
+	common.OptionMap["ModerationProvidersText"] = setting.ModerationProvidersText
+	common.OptionMap["ModerationProvidersMedia"] = setting.ModerationProvidersMedia
 	common.OptionMap["ModerationCategoryThresholds"] = setting.ModerationCategoryThresholds
 	common.OptionMap["ModerationDefaultThreshold"] = strconv.FormatFloat(setting.ModerationDefaultThreshold, 'f', -1, 64)
 	common.OptionMap["ModerationFailOpen"] = strconv.FormatBool(setting.ModerationFailOpen)
@@ -487,8 +488,10 @@ func updateOptionMap(key string, value string) (err error) {
 		setting.ModerationBaseUrl = value
 	case "ModerationModel":
 		setting.ModerationModel = value
-	case "ModerationProviders":
-		setting.ModerationProviders = value
+	case "ModerationProvidersText":
+		setting.ModerationProvidersText = value
+	case "ModerationProvidersMedia":
+		setting.ModerationProvidersMedia = value
 	case "ModerationCategoryThresholds":
 		setting.ModerationCategoryThresholds = value
 	case "ModerationDefaultThreshold":
