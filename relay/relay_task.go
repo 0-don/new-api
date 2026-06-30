@@ -1,10 +1,10 @@
 package relay
 
 import (
-	"github.com/QuantumNous/new-api/i18n"
 	"bytes"
 	"errors"
 	"fmt"
+	"github.com/QuantumNous/new-api/i18n"
 	"io"
 	"net/http"
 	"strconv"
@@ -157,6 +157,23 @@ func RelayTaskSubmit(c *gin.Context, info *relaycommon.RelayInfo) (*TaskSubmitRe
 	adaptor.Init(info)
 	if taskErr := adaptor.ValidateRequestAndSetAction(c, info); taskErr != nil {
 		return nil, taskErr
+	}
+
+	// CREEM prompt moderation for video generation (merchant-of-record requirement).
+	// Runs before pre-consume billing so a denied prompt is never charged. Suno (audio)
+	// is excluded; the prompt is read generically from the task request body.
+	if service.CreemModerationEnabled() && platform != constant.TaskPlatformSuno {
+		var taskReq struct {
+			Prompt string `json:"prompt"`
+		}
+		_ = common.UnmarshalBodyReusable(c, &taskReq)
+		externalID := fmt.Sprintf("%d:%s", info.UserId, info.RequestId)
+		if modErr := service.AssertCreemPromptAllowed(c.Request.Context(), taskReq.Prompt, externalID); modErr != nil {
+			if errors.Is(modErr, service.ErrCreemPromptDenied) {
+				return nil, service.TaskErrorWrapperLocal(modErr, "prompt_rejected", http.StatusBadRequest)
+			}
+			return nil, service.TaskErrorWrapperLocal(modErr, "moderation_unavailable", http.StatusServiceUnavailable)
+		}
 	}
 
 	// 2. 确定模型名称

@@ -148,6 +148,7 @@ const paymentSchema = z.object({
   CreemApiKey: z.string(),
   CreemWebhookSecret: z.string(),
   CreemTestMode: z.boolean(),
+  CreemModerationEnabled: z.boolean(),
   CreemProducts: z.string().superRefine((value, ctx) => {
     const error = getJsonError(value, (parsed) => Array.isArray(parsed))
     if (error) {
@@ -445,6 +446,7 @@ export function PaymentSettingsSection({
       CreemApiKey: values.CreemApiKey.trim(),
       CreemWebhookSecret: values.CreemWebhookSecret.trim(),
       CreemTestMode: values.CreemTestMode,
+      CreemModerationEnabled: values.CreemModerationEnabled,
       CreemProducts: values.CreemProducts.trim(),
       NowPaymentsEnabled: values.NowPaymentsEnabled,
       NowPaymentsApiKey: values.NowPaymentsApiKey.trim(),
@@ -501,6 +503,7 @@ export function PaymentSettingsSection({
       CreemApiKey: initialRef.current.CreemApiKey.trim(),
       CreemWebhookSecret: initialRef.current.CreemWebhookSecret.trim(),
       CreemTestMode: initialRef.current.CreemTestMode,
+      CreemModerationEnabled: initialRef.current.CreemModerationEnabled,
       CreemProducts: initialRef.current.CreemProducts.trim(),
       NowPaymentsEnabled: initialRef.current.NowPaymentsEnabled,
       NowPaymentsApiKey: initialRef.current.NowPaymentsApiKey.trim(),
@@ -652,6 +655,15 @@ export function PaymentSettingsSection({
 
     if (sanitized.CreemTestMode !== initial.CreemTestMode) {
       updates.push({ key: 'CreemTestMode', value: sanitized.CreemTestMode })
+    }
+
+    if (
+      sanitized.CreemModerationEnabled !== initial.CreemModerationEnabled
+    ) {
+      updates.push({
+        key: 'CreemModerationEnabled',
+        value: sanitized.CreemModerationEnabled,
+      })
     }
 
     if (
@@ -1943,6 +1955,29 @@ export function PaymentSettingsSection({
                         <FormLabel>{t('Test Mode')}</FormLabel>
                         <FormDescription>
                           {t('Enable test mode for Creem payments')}
+                        </FormDescription>
+                      </SettingsSwitchContent>
+                      <FormControl>
+                        <Switch
+                          checked={field.value}
+                          onCheckedChange={field.onChange}
+                        />
+                      </FormControl>
+                    </SettingsSwitchItem>
+                  )}
+                />
+
+                <FormField
+                  control={form.control}
+                  name='CreemModerationEnabled'
+                  render={({ field }) => (
+                    <SettingsSwitchItem>
+                      <SettingsSwitchContent>
+                        <FormLabel>{t('Content Moderation')}</FormLabel>
+                        <FormDescription>
+                          {t(
+                            'Screen image and video prompts through the Creem moderation API before generation'
+                          )}
                         </FormDescription>
                       </SettingsSwitchContent>
                       <FormControl>

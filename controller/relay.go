@@ -143,6 +143,30 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		}
 	}
 
+	// CREEM prompt moderation for image generation (merchant-of-record requirement).
+	// Runs before upstream dispatch; fails closed when enabled. Image prompt is meta.CombineText.
+	if service.CreemModerationEnabled() &&
+		(relayInfo.RelayMode == relayconstant.RelayModeImagesGenerations ||
+			relayInfo.RelayMode == relayconstant.RelayModeImagesEdits) {
+		moderationMeta := meta
+		if moderationMeta == nil {
+			moderationMeta = request.GetTokenCountMeta()
+		}
+		prompt := ""
+		if moderationMeta != nil {
+			prompt = moderationMeta.CombineText
+		}
+		externalID := fmt.Sprintf("%d:%s", relayInfo.UserId, requestId)
+		if modErr := service.AssertCreemPromptAllowed(c.Request.Context(), prompt, externalID); modErr != nil {
+			if errors.Is(modErr, service.ErrCreemPromptDenied) {
+				newAPIError = types.NewErrorWithStatusCode(modErr, types.ErrorCodeInvalidRequest, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
+			} else {
+				newAPIError = types.NewErrorWithStatusCode(modErr, types.ErrorCodeBadResponse, http.StatusServiceUnavailable, types.ErrOptionWithSkipRetry())
+			}
+			return
+		}
+	}
+
 	tokens, err := service.EstimateRequestToken(c, meta, relayInfo)
 	if err != nil {
 		newAPIError = types.NewError(err, types.ErrorCodeCountTokenFailed)

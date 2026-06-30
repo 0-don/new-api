@@ -157,6 +157,7 @@ const BILLING_SECTIONS = [
           CreemApiKey: settings.CreemApiKey,
           CreemWebhookSecret: settings.CreemWebhookSecret,
           CreemTestMode: settings.CreemTestMode,
+          CreemModerationEnabled: settings.CreemModerationEnabled ?? false,
           CreemProducts: settings.CreemProducts,
           NowPaymentsEnabled: settings.NowPaymentsEnabled ?? false,
           NowPaymentsApiKey: settings.NowPaymentsApiKey ?? '',

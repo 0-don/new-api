@@ -86,6 +86,7 @@ const defaultBillingSettings: BillingSettings = {
   CreemApiKey: '',
   CreemWebhookSecret: '',
   CreemTestMode: false,
+  CreemModerationEnabled: false,
   CreemProducts: '[]',
   NowPaymentsEnabled: false,
   NowPaymentsApiKey: '',

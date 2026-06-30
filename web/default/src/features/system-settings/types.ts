@@ -306,6 +306,7 @@ export type BillingSettings = {
   CreemApiKey: string
   CreemWebhookSecret: string
   CreemTestMode: boolean
+  CreemModerationEnabled: boolean
   CreemProducts: string
   NowPaymentsEnabled: boolean
   NowPaymentsApiKey: string
