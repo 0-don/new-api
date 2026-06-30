@@ -110,7 +110,8 @@ func genStripeSubscriptionLink(referenceId string, customerId string, email stri
 		if "" != email {
 			params.CustomerEmail = stripe.String(email)
 		}
-		params.CustomerCreation = stripe.String(string(stripe.CheckoutSessionCustomerCreationAlways))
+		// CustomerCreation is invalid in subscription mode (Stripe creates the
+		// customer automatically); only valid in payment mode.
 	} else {
 		params.Customer = stripe.String(customerId)
 	}
