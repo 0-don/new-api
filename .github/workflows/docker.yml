@@ -70,8 +70,14 @@ jobs:
       # container healthcheck, THEN stops the old one; then the slave. --resolve-
       # image never keeps the local tag (no registry lookup). --with-registry-auth
       # is unnecessary for a local image.
+      # `docker stack deploy` does NOT auto-load .env like `docker compose` does,
+      # so ${POSTGRES_USER} etc. would interpolate to empty (the app then built a
+      # DSN with a blank user, defaulting to "root", and postgres auth failed).
+      # Source .env into the environment first so stack-file interpolation works.
       - name: Deploy app stack (rolling)
-        run: docker stack deploy -c docker-stack-traefik.yml --resolve-image never newapi
+        run: |
+          set -a; . ./.env; set +a
+          docker stack deploy -c docker-stack-traefik.yml --resolve-image never newapi
 
       # Swarm task containers are named newapi_<service>.<n>.<id>, NOT a fixed
       # container_name, so resolve by name filter. Wait for a running master +
