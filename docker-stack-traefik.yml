@@ -5,7 +5,9 @@
 version: "3.8"
 
 x-newapi-app: &newapi-app
-  image: unorouter-new-api:latest
+  # CI sets NEWAPI_IMAGE=unorouter-new-api:<sha>; the changing tag is what makes
+  # swarm roll tasks (an unchanged spec is a no-op even after a fresh build).
+  image: ${NEWAPI_IMAGE:-unorouter-new-api:latest}
   healthcheck:
     test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost:3000/api/status"]
     interval: 30s

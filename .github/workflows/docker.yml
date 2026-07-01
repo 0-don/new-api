@@ -10,6 +10,10 @@ concurrency:
 jobs:
   build:
     runs-on: self-hosted
+    env:
+      # Per-commit tag: swarm only rolls tasks when the service spec changes,
+      # a re-deployed identical :latest spec is a no-op and ships nothing.
+      NEWAPI_IMAGE: unorouter-new-api:${{ github.sha }}
 
     steps:
       - uses: actions/checkout@v4
@@ -55,7 +59,7 @@ jobs:
       # Local tag only; single node needs no registry push. A 2nd node later would
       # require pushing to a registry (a remote node can't see a local image).
       - name: Build app image
-        run: docker build -t unorouter-new-api:latest .
+        run: docker build -t "$NEWAPI_IMAGE" -t unorouter-new-api:latest .
 
       # stack deploy does not auto-load .env, so source it first (else ${POSTGRES_*}
       # interpolate empty). NEWAPI_HOST_DIR from $HOME keeps the stack host-agnostic.
@@ -66,27 +70,33 @@ jobs:
           docker stack deploy -c docker-stack-traefik.yml --resolve-image never newapi
 
       # Swarm tasks are named newapi_<service>.<n>.<id>, so resolve by name filter.
+      # Must match on $NEWAPI_IMAGE: during a start-first roll the OLD task is
+      # still healthy and would pass a plain health check.
       - name: Wait for master healthy
         run: |
-          for i in $(seq 1 90); do
+          for i in $(seq 1 120); do
             cid=$(docker ps -q -f name=newapi_newapi-master -f health=healthy | head -1)
-            if [ -n "$cid" ] && docker exec "$cid" wget -q -O /dev/null http://localhost:3000/api/status; then
-              echo "master healthy"; exit 0
+            if [ -n "$cid" ] \
+              && [ "$(docker inspect "$cid" --format '{{.Config.Image}}')" = "$NEWAPI_IMAGE" ] \
+              && docker exec "$cid" wget -q -O /dev/null http://localhost:3000/api/status; then
+              echo "master healthy on $NEWAPI_IMAGE"; exit 0
             fi
             echo "waiting for master... ($i)"; sleep 2
           done
-          echo "master did not become healthy in time"; docker service ps newapi_newapi-master --no-trunc; exit 1
+          echo "master did not become healthy on $NEWAPI_IMAGE in time"; docker service ps newapi_newapi-master --no-trunc; exit 1
 
-      - name: Wait for slave healthy
+      - name: Wait for slaves healthy
         run: |
-          for i in $(seq 1 90); do
-            cid=$(docker ps -q -f name=newapi_newapi-slave -f health=healthy | head -1)
-            if [ -n "$cid" ] && docker exec "$cid" wget -q -O /dev/null http://localhost:3000/api/status; then
-              echo "slave healthy"; exit 0
+          for i in $(seq 1 120); do
+            n=$(docker ps -q -f name=newapi_newapi-slave -f health=healthy \
+              | xargs -r docker inspect --format '{{.Config.Image}}' \
+              | grep -cx "$NEWAPI_IMAGE" || true)
+            if [ "$n" -ge 2 ]; then
+              echo "$n slaves healthy on $NEWAPI_IMAGE"; exit 0
             fi
-            echo "waiting for slave... ($i)"; sleep 2
+            echo "waiting for slaves... ($i, healthy on new image: $n)"; sleep 2
           done
-          echo "slave did not become healthy in time"; docker service ps newapi_newapi-slave --no-trunc; exit 1
+          echo "slaves did not become healthy on $NEWAPI_IMAGE in time"; docker service ps newapi_newapi-slave --no-trunc; exit 1
 
       # - name: Docker run debug
       #   run: docker compose -f docker-compose-debug.yml up -d --build
