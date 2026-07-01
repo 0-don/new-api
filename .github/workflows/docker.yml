@@ -39,8 +39,10 @@ jobs:
 
       # Idempotent: init swarm on the host if it isn't already a manager. No-op on
       # every subsequent deploy.
+      # grep -qx (exact whole-line): a plain `grep active` also matches the
+      # substring in "inactive", so it would skip init on a fresh host.
       - name: Ensure swarm active
-        run: docker info --format '{{.Swarm.LocalNodeState}}' | grep -q active || docker swarm init
+        run: docker info --format '{{.Swarm.LocalNodeState}}' | grep -qx active || docker swarm init
 
       # Overlay shared by Traefik + the app stack. --attachable so the standalone
       # Traefik container can join it and reach the swarm task IPs. Ignore the
