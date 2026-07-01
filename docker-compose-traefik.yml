@@ -1,90 +1,35 @@
 name: unorouter-new-api
 
+# Plain-compose DATASTORES + sidecars for new-api. The APP instances (master +
+# slave) live in docker-stack-traefik.yml as a Swarm stack (native replicas +
+# start-first rolling behind Traefik). These services are singletons - postgres,
+# redis, their backup, and the log-pruner - so they stay plain compose and are
+# NOT scaled. Bring them up (cold-start safe) with:
+#   docker compose -f docker-compose-traefik.yml up -d --wait \
+#     unorouter-new-api-postgres unorouter-new-api-redis
+#   docker compose -f docker-compose-traefik.yml up -d   # backup + logrotate
+# The swarm app stack reaches postgres/redis over the `internal` network (shared
+# external) and Traefik over the `newapi-overlay` overlay.
+
 networks:
-  proxy:
-    external: false
-    name: proxy
+  # Overlay shared with Traefik + the swarm app stack. Created --attachable in CI
+  # (docker network create --driver overlay --attachable newapi-overlay). Declared
+  # external here so a `compose up` never tries to recreate it as a bridge.
+  newapi-overlay:
+    external: true
+  # App<->datastore bridge. name is fixed so the swarm stack can attach to it as
+  # `unorouter-new-api_internal` (compose prefixes with the project name).
   internal:
     driver: bridge
+    name: unorouter-new-api_internal
 
 services:
-  unorouter-new-api:
-    build: .
-    # image: calciumion/new-api-horizon:latest
-    container_name: unorouter-new-api
-    restart: always
-    command: --log-dir /app/logs
-    # Two log sinks (logger.go MultiWriters stdout + --log-dir file):
-    #  1. docker stdout (json-file): 20GB x 5 = ~100GB, self-rotating (oldest
-    #     dropped when the 5th file starts). Hard cap, no maintenance.
-    #  2. the app's own ~/new-api/logs/oneapi-*.log files: NOT self-pruning, so
-    #     the unorouter-new-api-logrotate sidecar below deletes files older than
-    #     LOG_RETENTION_DAYS. Both travel with this compose (survive a migration),
-    #     no host cron to forget. DEBUG=true makes both firehoses.
-    logging:
-      driver: json-file
-      options:
-        max-size: "20g"
-        max-file: "5"
-    healthcheck:
-      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost:3000/"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 40s
-    networks:
-      - proxy
-      - internal
-    volumes:
-      - ~/new-api/data:/data
-      - ~/new-api/logs:/app/logs
-    environment:
-      - SQL_DSN=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@unorouter-new-api-postgres:5432/${POSTGRES_DB}
-      - REDIS_CONN_STRING=redis://unorouter-new-api-redis
-      - TZ=Europe/Berlin
-      - SESSION_SECRET=${SESSION_SECRET}
-      - CRYPTO_SECRET=${CRYPTO_SECRET}
-      - SMTP_BCC=${SMTP_BCC}
-      - ERROR_LOG_ENABLED=true
-      - DEBUG=true
-      - BATCH_UPDATE_ENABLED=false
-      - MEMORY_CACHE_ENABLED=false
-      - GIN_MODE=release
-      - ENABLE_OPENAPI=true
-      - DEFAULT_LANGUAGE=en # Backend language: en, zh-CN, zh-TW, fr, ja, ru, vi
-      # 0 = no total wall-clock cap; long streamed responses are bounded by the
-      # idle reaper (STREAMING_TIMEOUT) instead, so healthy long reasoning never gets cut.
-      # STREAMING_TIMEOUT=1800: only reap a stream silent for 30 min between tokens.
-      - RELAY_TIMEOUT=0
-      - STREAMING_TIMEOUT=1800
-      - GLOBAL_API_RATE_LIMIT_ENABLE=false
-      - SEARCH_RATE_LIMIT_ENABLE=false
-      - CRITICAL_RATE_LIMIT=10000
-      - OAUTH_ALLOWED_REDIRECT_ORIGINS=https://unorouter.com,http://localhost:3000
-      # Agent-OAuth 2.1 server. Signing key auto-generates into /data on
-      # first boot. Consent URL derives from the first entry in
-      # OAUTH_ALLOWED_REDIRECT_ORIGINS. All other OAUTH_* vars have sensible
-      # defaults — see .env.example for overrides.
-      - OAUTH_SERVER_ENABLED=true
-      - OAUTH_ISSUER_URL=https://api.unorouter.com
-      - ENABLE_PPROF=true
-    labels:
-      - "autoheal=true"
-      - "traefik.enable=true"
-      - "traefik.docker.network=proxy"
-      - "traefik.http.routers.newapi.rule=Host(`api.unorouter.com`)"
-      - "traefik.http.routers.newapi.entrypoints=websecure"
-      - "traefik.http.routers.newapi.tls.certresolver=letsencrypt"
-      - "traefik.http.services.newapi.loadbalancer.server.port=3000"
-    depends_on:
-      - unorouter-new-api-redis
-      - unorouter-new-api-postgres
-
   # Prune the app's own file logs so ~/new-api/logs never fills the disk. new-api
   # writes a fresh oneapi-<ts>.log every few minutes via --log-dir and never
   # deletes old ones; this sidecar shares the same volume and removes files older
-  # than LOG_RETENTION_DAYS on an hourly loop. Lives in compose so it survives a
-  # server migration (no host cron to forget). Adjust retention via the env var.
+  # than LOG_RETENTION_DAYS on an hourly loop. Recursive find covers the swarm
+  # apps' master/ + slave/ subdirs. Lives in compose so it survives a server
+  # migration (no host cron to forget).
   unorouter-new-api-logrotate:
     image: alpine:latest
     container_name: unorouter-new-api-logrotate
@@ -107,6 +52,12 @@ services:
     restart: always
     networks:
       - internal
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
 
   unorouter-new-api-postgres:
     image: postgres:15
@@ -122,6 +73,16 @@ services:
       POSTGRES_DB: ${POSTGRES_DB}
     volumes:
       - unorouter_pg_data:/var/lib/postgresql/data
+    # Gate the swarm app tasks on a READY database. On a cold/fresh server postgres
+    # runs initdb for ~5-10s; the CI `--wait` on this healthcheck blocks the stack
+    # deploy until pg_isready flips healthy, so the master never boots into a
+    # migration against a not-yet-accepting database.
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
 
   unorouter-new-api-pgbackup:
     image: prodrigestivill/postgres-backup-local:15-alpine

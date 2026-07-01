@@ -31,8 +31,70 @@ jobs:
 
           echo ERROR_LOG_ENABLED=true >> .env
 
-      - name: Docker run prod
-        run: docker compose -f docker-compose-traefik.yml up -d --force-recreate --build
+      # Zero-downtime HA via single-node Swarm. The app runs as a swarm stack
+      # (newapi-master + newapi-slave); swarm's start-first update boots the new
+      # task green BEFORE stopping the old one, and Traefik's file-provider WRR
+      # keeps routing to whichever child is healthy - no deploy 404 window. The
+      # datastores stay plain compose (singletons, not scaled).
+
+      # Idempotent: init swarm on the host if it isn't already a manager. No-op on
+      # every subsequent deploy.
+      - name: Ensure swarm active
+        run: docker info --format '{{.Swarm.LocalNodeState}}' | grep -q active || docker swarm init
+
+      # Overlay shared by Traefik + the app stack. --attachable so the standalone
+      # Traefik container can join it and reach the swarm task IPs. Ignore the
+      # "already exists" error on redeploys.
+      - name: Ensure overlay network
+        run: docker network create --driver overlay --attachable newapi-overlay 2>/dev/null || true
+
+      # Datastores first, BLOCK until healthy (--wait). On a cold/fresh server
+      # postgres runs initdb for ~5-10s; this gate means the master never stack-
+      # deploys into a migration against a not-yet-accepting DB. Idempotent.
+      - name: Ensure datastores healthy (cold-start safe)
+        run: docker compose -f docker-compose-traefik.yml up -d --wait --wait-timeout 120 unorouter-new-api-postgres unorouter-new-api-redis
+
+      - name: Ensure support services
+        run: docker compose -f docker-compose-traefik.yml up -d unorouter-new-api-pgbackup unorouter-new-api-logrotate
+
+      # Build the app image locally and tag it exactly as the stack references it.
+      # Single node -> no registry push needed (all tasks land on this host and see
+      # the local image). NOTE: if a 2nd swarm node is ever added, this MUST push
+      # to a registry - a remote node cannot see a locally-built image.
+      - name: Build app image
+        run: docker build -t unorouter-new-api:latest .
+
+      # start-first rolling: swarm brings up the new master task, waits for its
+      # container healthcheck, THEN stops the old one; then the slave. --resolve-
+      # image never keeps the local tag (no registry lookup). --with-registry-auth
+      # is unnecessary for a local image.
+      - name: Deploy app stack (rolling)
+        run: docker stack deploy -c docker-stack-traefik.yml --resolve-image never newapi
+
+      # Swarm task containers are named newapi_<service>.<n>.<id>, NOT a fixed
+      # container_name, so resolve by name filter. Wait for a running master +
+      # slave task that answers /api/status.
+      - name: Wait for master healthy
+        run: |
+          for i in $(seq 1 90); do
+            cid=$(docker ps -q -f name=newapi_newapi-master -f health=healthy | head -1)
+            if [ -n "$cid" ] && docker exec "$cid" wget -q -O /dev/null http://localhost:3000/api/status; then
+              echo "master healthy"; exit 0
+            fi
+            echo "waiting for master... ($i)"; sleep 2
+          done
+          echo "master did not become healthy in time"; docker service ps newapi_newapi-master --no-trunc; exit 1
+
+      - name: Wait for slave healthy
+        run: |
+          for i in $(seq 1 90); do
+            cid=$(docker ps -q -f name=newapi_newapi-slave -f health=healthy | head -1)
+            if [ -n "$cid" ] && docker exec "$cid" wget -q -O /dev/null http://localhost:3000/api/status; then
+              echo "slave healthy"; exit 0
+            fi
+            echo "waiting for slave... ($i)"; sleep 2
+          done
+          echo "slave did not become healthy in time"; docker service ps newapi_newapi-slave --no-trunc; exit 1
 
       - name: Docker run debug
         run: docker compose -f docker-compose-debug.yml up -d --build

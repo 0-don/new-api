@@ -1,0 +1,127 @@
+# Swarm stack: the new-api APP instances (master + slave) only. Datastores
+# (postgres/redis/pgbackup/logrotate) stay in docker-compose-traefik.yml as plain
+# compose singletons - swarm scales apps, not the DB. Deploy with:
+#   docker stack deploy -c docker-stack-traefik.yml --resolve-image never newapi
+#
+# Two services because the app requires EXACTLY ONE master: NODE_TYPE unset =
+# master (runs DB migration + all scheduled jobs, gated on common.IsMasterNode);
+# NODE_TYPE=slave skips both and just serves API + relay + web. Identical swarm
+# replicas cannot express that, so master is its own replicas:1 service and the
+# slave is a separate service (bump its replicas for more standing capacity).
+#
+# Traefik load-balances the two via a file-provider WRR (traefik dynamic/
+# newapi-wrr.yml) that references newapi-master@swarm + newapi-slave@swarm. The
+# HTTP router lives in that file, NOT here - two services declaring the same
+# router label would collide. Here each service only publishes itself as a plain
+# LB service (server.port + healthcheck.path) under deploy.labels (swarm reads
+# labels from deploy, not the container).
+version: "3.8"
+
+x-newapi-app: &newapi-app
+  image: unorouter-new-api:latest
+  # Wait for a stream silent 30 min between tokens before reaping; no wall-clock cap.
+  healthcheck:
+    test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost:3000/api/status"]
+    interval: 30s
+    timeout: 10s
+    retries: 3
+    start_period: 40s
+  networks:
+    - newapi-overlay
+    - internal
+  # ABSOLUTE paths - `docker stack deploy` does NOT expand `~` (it is not a shell,
+  # unlike `docker compose`). Override NEWAPI_HOST_DIR if the runner home differs.
+  volumes:
+    - ${NEWAPI_HOST_DIR:-/home/don/new-api}/data:/data
+    - ${NEWAPI_HOST_DIR:-/home/don/new-api}/logs:/app/logs
+  logging:
+    driver: json-file
+    options:
+      max-size: "10g"
+      max-file: "5"
+
+x-newapi-env: &newapi-env
+  SQL_DSN: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@unorouter-new-api-postgres:5432/${POSTGRES_DB}
+  REDIS_CONN_STRING: redis://unorouter-new-api-redis
+  TZ: Europe/Berlin
+  SESSION_SECRET: ${SESSION_SECRET}
+  CRYPTO_SECRET: ${CRYPTO_SECRET}
+  SMTP_BCC: ${SMTP_BCC}
+  ERROR_LOG_ENABLED: "true"
+  DEBUG: "true"
+  BATCH_UPDATE_ENABLED: "false"
+  MEMORY_CACHE_ENABLED: "false"
+  # DB-poll cache coherence (no pub/sub); 15s keeps the slave's channel/option/authz
+  # caches fresh soon after a master change.
+  SYNC_FREQUENCY: "15"
+  GIN_MODE: release
+  ENABLE_OPENAPI: "true"
+  DEFAULT_LANGUAGE: en
+  RELAY_TIMEOUT: "0"
+  STREAMING_TIMEOUT: "1800"
+  GLOBAL_API_RATE_LIMIT_ENABLE: "false"
+  SEARCH_RATE_LIMIT_ENABLE: "false"
+  CRITICAL_RATE_LIMIT: "10000"
+  OAUTH_ALLOWED_REDIRECT_ORIGINS: https://unorouter.com,http://localhost:3000
+  OAUTH_SERVER_ENABLED: "true"
+  OAUTH_ISSUER_URL: https://api.unorouter.com
+  ENABLE_PPROF: "true"
+
+x-newapi-deploy: &newapi-deploy
+  replicas: 1
+  # start-first: swarm boots the replacement task and waits for it to pass the
+  # container healthcheck BEFORE stopping the old one -> zero-downtime rolling.
+  update_config:
+    order: start-first
+    parallelism: 1
+    failure_action: rollback
+  rollback_config:
+    order: start-first
+  restart_policy:
+    condition: any
+
+services:
+  # MASTER: migrates the DB + runs every scheduled job. NODE_TYPE unset = master.
+  newapi-master:
+    <<: *newapi-app
+    command: --log-dir /app/logs/master
+    environment:
+      <<: *newapi-env
+    deploy:
+      <<: *newapi-deploy
+      labels:
+        - "traefik.enable=true"
+        - "traefik.swarm.network=newapi-overlay"
+        - "traefik.http.services.newapi-master.loadbalancer.server.port=3000"
+        - "traefik.http.services.newapi-master.loadbalancer.healthcheck.path=/api/status"
+        - "traefik.http.services.newapi-master.loadbalancer.healthcheck.interval=5s"
+        - "traefik.http.services.newapi-master.loadbalancer.healthcheck.timeout=3s"
+
+  # SLAVE: serves API + relay + web; skips migration + scheduled jobs via NODE_TYPE.
+  # Bump replicas for more standing capacity - all slaves are interchangeable.
+  newapi-slave:
+    <<: *newapi-app
+    command: --log-dir /app/logs/slave
+    environment:
+      <<: *newapi-env
+      NODE_TYPE: slave
+    deploy:
+      <<: *newapi-deploy
+      labels:
+        - "traefik.enable=true"
+        - "traefik.swarm.network=newapi-overlay"
+        - "traefik.http.services.newapi-slave.loadbalancer.server.port=3000"
+        - "traefik.http.services.newapi-slave.loadbalancer.healthcheck.path=/api/status"
+        - "traefik.http.services.newapi-slave.loadbalancer.healthcheck.interval=5s"
+        - "traefik.http.services.newapi-slave.loadbalancer.healthcheck.timeout=3s"
+
+networks:
+  # Overlay shared with Traefik (created --attachable in CI). Traefik reaches the
+  # swarm task IPs here; a plain local bridge cannot carry swarm-service traffic.
+  newapi-overlay:
+    external: true
+  # Bridge to the plain-compose datastores (postgres/redis) in
+  # docker-compose-traefik.yml. External so both stacks share the one network.
+  internal:
+    external: true
+    name: unorouter-new-api_internal

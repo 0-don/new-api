@@ -150,7 +150,13 @@ func main() {
 	if os.Getenv("BATCH_UPDATE_ENABLED") == "true" {
 		common.BatchUpdateEnabled = true
 		common.SysLog(i18n.Translate("main.batch_update_enabled_with_interval") + strconv.Itoa(common.BatchUpdateInterval) + "s")
-		model.InitBatchUpdater()
+		// Master-only: each node keeps its own in-memory batch store and flushes
+		// it to the same quota tables, so running the batcher on every instance
+		// double-writes quota deltas in a multi-node deployment. Gate it to the
+		// master (the node that also owns migrations + scheduled jobs).
+		if common.IsMasterNode {
+			model.InitBatchUpdater()
+		}
 	}
 
 	if os.Getenv("ENABLE_PPROF") == "true" {
