@@ -375,6 +375,7 @@ export type OperationsSettings = {
   'monitor_setting.channel_status_notify_enabled': boolean
   'monitor_setting.snapshot_model_status_enabled': boolean
   'monitor_setting.snapshot_model_status_retention_days': number
+  'monitor_setting.disable_on_empty_response': boolean
   SMTPServer: string
   SMTPPort: string
   SMTPAccount: string

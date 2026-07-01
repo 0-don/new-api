@@ -70,6 +70,8 @@ const OPERATIONS_SECTIONS = [
             settings[
               'monitor_setting.snapshot_model_status_retention_days'
             ] ?? 30,
+          'monitor_setting.disable_on_empty_response':
+            settings['monitor_setting.disable_on_empty_response'] ?? true,
         }}
       />
     ),

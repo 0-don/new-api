@@ -492,6 +492,14 @@ func testChannel(ctx context.Context, channel *model.Channel, testUserID int, te
 			newAPIError: types.NewOpenAIError(bodyErr, types.ErrorCodeBadResponseBody, http.StatusInternalServerError),
 		}
 	}
+	if operation_setting.GetMonitorSetting().DisableOnEmptyResponse && isEmptyTestResponseBody(respBody, isStream) {
+		emptyErr := errors.New("channel: empty response (upstream returned 200 with no content)")
+		return testResult{
+			context:     c,
+			localErr:    emptyErr,
+			newAPIError: types.NewOpenAIError(emptyErr, types.ErrorCodeChannelEmptyResponse, http.StatusBadGateway),
+		}
+	}
 	info.SetEstimatePromptTokens(usage.PromptTokens)
 
 	quota, tieredResult := settleTestQuota(info, priceData, usage)
@@ -659,6 +667,66 @@ func validateTestResponseBody(respBody []byte, isStream bool) error {
 		return validateStreamTestResponseBody(respBody)
 	}
 	return nil
+}
+
+// isEmptyTestResponseBody reports whether a 200 test response carries no usable
+// model output (content, reasoning or tool calls). Non-chat payloads (embeddings,
+// rerank, images) have no choices array and are never flagged.
+func isEmptyTestResponseBody(respBody []byte, isStream bool) bool {
+	b := bytes.TrimSpace(respBody)
+	if len(b) == 0 {
+		return true
+	}
+
+	if !isStream {
+		if b[0] != '{' {
+			return false
+		}
+		choices := gjson.GetBytes(b, "choices")
+		if !choices.Exists() || !choices.IsArray() {
+			return false
+		}
+		return !chatChoiceHasOutput(gjson.GetBytes(b, "choices.0.message")) &&
+			strings.TrimSpace(gjson.GetBytes(b, "choices.0.text").String()) == ""
+	}
+
+	sawChatChunk := false
+	for _, line := range bytes.Split(b, []byte{'\n'}) {
+		line = bytes.TrimSpace(line)
+		if !bytes.HasPrefix(line, []byte("data:")) {
+			continue
+		}
+		payload := bytes.TrimSpace(bytes.TrimPrefix(line, []byte("data:")))
+		if len(payload) == 0 || bytes.Equal(payload, []byte("[DONE]")) || payload[0] != '{' {
+			continue
+		}
+		choices := gjson.GetBytes(payload, "choices")
+		if !choices.Exists() || !choices.IsArray() {
+			continue
+		}
+		sawChatChunk = true
+		if chatChoiceHasOutput(gjson.GetBytes(payload, "choices.0.delta")) ||
+			strings.TrimSpace(gjson.GetBytes(payload, "choices.0.text").String()) != "" {
+			return false
+		}
+	}
+	return sawChatChunk
+}
+
+func chatChoiceHasOutput(message gjson.Result) bool {
+	if !message.Exists() {
+		return false
+	}
+	if strings.TrimSpace(message.Get("content").String()) != "" {
+		return true
+	}
+	if strings.TrimSpace(message.Get("reasoning_content").String()) != "" {
+		return true
+	}
+	if toolCalls := message.Get("tool_calls"); toolCalls.IsArray() && len(toolCalls.Array()) > 0 {
+		return true
+	}
+	return message.Get("function_call").Exists()
 }
 
 func shouldUseStreamForAutomaticChannelTest(channel *model.Channel) bool {

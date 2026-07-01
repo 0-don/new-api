@@ -44,6 +44,7 @@ const defaultOperationsSettings: OperationsSettings = {
   'monitor_setting.channel_status_notify_enabled': true,
   'monitor_setting.snapshot_model_status_enabled': true,
   'monitor_setting.snapshot_model_status_retention_days': 30,
+  'monitor_setting.disable_on_empty_response': true,
   SMTPServer: '',
   SMTPPort: '',
   SMTPAccount: '',

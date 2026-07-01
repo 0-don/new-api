@@ -15,6 +15,9 @@ type MonitorSetting struct {
 	ChannelStatusNotifyEnabled       bool    `json:"channel_status_notify_enabled"`
 	SnapshotModelStatusEnabled       bool    `json:"snapshot_model_status_enabled"`
 	SnapshotModelStatusRetentionDays int     `json:"snapshot_model_status_retention_days"`
+	// Fail a channel test when the upstream returns 200 with no content, so the
+	// disable-on-failure / re-enable-on-success loop treats blank channels as broken.
+	DisableOnEmptyResponse bool `json:"disable_on_empty_response"`
 }
 
 const (
@@ -31,6 +34,7 @@ var monitorSetting = MonitorSetting{
 	ChannelStatusNotifyEnabled:       true,
 	SnapshotModelStatusEnabled:       true,
 	SnapshotModelStatusRetentionDays: 30,
+	DisableOnEmptyResponse:           true,
 }
 
 func init() {

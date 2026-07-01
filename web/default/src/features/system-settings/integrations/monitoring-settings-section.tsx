@@ -74,6 +74,7 @@ const monitoringSchema = z
         .number()
         .int()
         .min(1, 'Retention must be at least 1 day'),
+      disable_on_empty_response: z.boolean(),
     }),
   })
   .superRefine((values, ctx) => {
@@ -122,6 +123,7 @@ type MonitoringSettingsSectionProps = {
     'monitor_setting.channel_status_notify_enabled': boolean
     'monitor_setting.snapshot_model_status_enabled': boolean
     'monitor_setting.snapshot_model_status_retention_days': number
+    'monitor_setting.disable_on_empty_response': boolean
   }
 }
 
@@ -143,6 +145,7 @@ type NormalizedMonitoringValues = {
   'monitor_setting.channel_status_notify_enabled': boolean
   'monitor_setting.snapshot_model_status_enabled': boolean
   'monitor_setting.snapshot_model_status_retention_days': number
+  'monitor_setting.disable_on_empty_response': boolean
 }
 
 const buildFormDefaults = (
@@ -170,6 +173,8 @@ const buildFormDefaults = (
       defaults['monitor_setting.snapshot_model_status_enabled'],
     snapshot_model_status_retention_days:
       defaults['monitor_setting.snapshot_model_status_retention_days'],
+    disable_on_empty_response:
+      defaults['monitor_setting.disable_on_empty_response'],
   },
 })
 
@@ -201,6 +206,8 @@ const normalizeDefaults = (
     defaults['monitor_setting.snapshot_model_status_enabled'],
   'monitor_setting.snapshot_model_status_retention_days':
     defaults['monitor_setting.snapshot_model_status_retention_days'],
+  'monitor_setting.disable_on_empty_response':
+    defaults['monitor_setting.disable_on_empty_response'],
 })
 
 const normalizeFormValues = (
@@ -231,6 +238,8 @@ const normalizeFormValues = (
     values.monitor_setting.snapshot_model_status_enabled,
   'monitor_setting.snapshot_model_status_retention_days':
     values.monitor_setting.snapshot_model_status_retention_days,
+  'monitor_setting.disable_on_empty_response':
+    values.monitor_setting.disable_on_empty_response,
 })
 
 export function MonitoringSettingsSection({
@@ -536,6 +545,29 @@ export function MonitoringSettingsSection({
                     <FormLabel>{t('Re-enable on success')}</FormLabel>
                     <FormDescription>
                       {t('Bring channels back online after successful checks')}
+                    </FormDescription>
+                  </SettingsSwitchContent>
+                  <FormControl>
+                    <Switch
+                      checked={field.value}
+                      onCheckedChange={field.onChange}
+                    />
+                  </FormControl>
+                </SettingsSwitchItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name='monitor_setting.disable_on_empty_response'
+              render={({ field }) => (
+                <SettingsSwitchItem>
+                  <SettingsSwitchContent>
+                    <FormLabel>{t('Fail tests on empty response')}</FormLabel>
+                    <FormDescription>
+                      {t(
+                        'Treat a 200 response without content as a failed test, so blank channels are disabled and not re-enabled'
+                      )}
                     </FormDescription>
                   </SettingsSwitchContent>
                   <FormControl>
