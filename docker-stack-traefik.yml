@@ -93,8 +93,10 @@ services:
         - "traefik.swarm.network=newapi-overlay"
         - "traefik.http.services.newapi-master.loadbalancer.server.port=3000"
         - "traefik.http.services.newapi-master.loadbalancer.healthcheck.path=/api/status"
-        - "traefik.http.services.newapi-master.loadbalancer.healthcheck.interval=5s"
+        - "traefik.http.services.newapi-master.loadbalancer.healthcheck.interval=2s"
         - "traefik.http.services.newapi-master.loadbalancer.healthcheck.timeout=3s"
+        # Fast dial timeout so a dead task IP fails fast -> retry redispatches (see WRR file).
+        - "traefik.http.services.newapi-master.loadbalancer.serverstransport=newapi-fast@file"
 
   # SLAVE: serves API + relay + web; skips migration + scheduled jobs via NODE_TYPE.
   # Bump replicas for more standing capacity - all slaves are interchangeable.
@@ -106,13 +108,20 @@ services:
       NODE_TYPE: slave
     deploy:
       <<: *newapi-deploy
+      # 2 replicas so the slave service ALWAYS has a live task: during its own
+      # start-first roll one stays serving while the other reboots, and during the
+      # MASTER roll (single task, briefly dark) these two carry all traffic. This
+      # is what closes the last per-service swap gap the retry middleware alone
+      # can't (a single-replica child goes fully dark for ~1 request mid-swap).
+      replicas: 2
       labels:
         - "traefik.enable=true"
         - "traefik.swarm.network=newapi-overlay"
         - "traefik.http.services.newapi-slave.loadbalancer.server.port=3000"
         - "traefik.http.services.newapi-slave.loadbalancer.healthcheck.path=/api/status"
-        - "traefik.http.services.newapi-slave.loadbalancer.healthcheck.interval=5s"
+        - "traefik.http.services.newapi-slave.loadbalancer.healthcheck.interval=2s"
         - "traefik.http.services.newapi-slave.loadbalancer.healthcheck.timeout=3s"
+        - "traefik.http.services.newapi-slave.loadbalancer.serverstransport=newapi-fast@file"
 
 networks:
   # Single overlay for everything: Traefik reaches the app task IPs here, and the
