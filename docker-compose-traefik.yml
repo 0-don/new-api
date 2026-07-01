@@ -1,33 +1,17 @@
 name: unorouter-new-api
 
-# Plain-compose DATASTORES + sidecars for new-api. The APP instances (master +
-# slave) live in docker-stack-traefik.yml as a Swarm stack (native replicas +
-# start-first rolling behind Traefik). These services are singletons - postgres,
-# redis, their backup, and the log-pruner - so they stay plain compose and are
-# NOT scaled. Bring them up (cold-start safe) with:
-#   docker compose -f docker-compose-traefik.yml up -d --wait \
-#     unorouter-new-api-postgres unorouter-new-api-redis
-#   docker compose -f docker-compose-traefik.yml up -d   # backup + logrotate
-# These datastores attach to the same --attachable overlay as the swarm app stack
-# and Traefik. A swarm-scoped service cannot join a local bridge, so a shared
-# bridge would leave the app tasks unable to reach postgres/redis. The overlay is
-# attachable, so these plain-compose containers can join it too and are reachable
-# by container name (unorouter-new-api-postgres / -redis) from the app tasks.
+# Plain-compose datastores + sidecars for new-api (the app runs as a swarm stack
+# in docker-stack-traefik.yml). Singletons, not scaled; they join the same
+# --attachable overlay so the swarm app tasks reach them by container name.
 
 networks:
-  # Overlay shared by Traefik + the swarm app stack + these datastores. Created
-  # --attachable in CI (docker network create --driver overlay --attachable
-  # newapi-overlay). External so `compose up` never recreates it as a bridge.
+  # Created --attachable in CI; external so compose never recreates it.
   newapi-overlay:
     external: true
 
 services:
-  # Prune the app's own file logs so ~/new-api/logs never fills the disk. new-api
-  # writes a fresh oneapi-<ts>.log every few minutes via --log-dir and never
-  # deletes old ones; this sidecar shares the same volume and removes files older
-  # than LOG_RETENTION_DAYS on an hourly loop. Recursive find covers the swarm
-  # apps' master/ + slave/ subdirs. Lives in compose so it survives a server
-  # migration (no host cron to forget).
+  # Hourly prune of the app's own oneapi-*.log files (new-api never deletes them);
+  # recursive find covers the master/ + slave/ subdirs the swarm apps write.
   unorouter-new-api-logrotate:
     image: alpine:latest
     container_name: unorouter-new-api-logrotate
@@ -71,10 +55,8 @@ services:
       POSTGRES_DB: ${POSTGRES_DB}
     volumes:
       - unorouter_pg_data:/var/lib/postgresql/data
-    # Gate the swarm app tasks on a READY database. On a cold/fresh server postgres
-    # runs initdb for ~5-10s; the CI `--wait` on this healthcheck blocks the stack
-    # deploy until pg_isready flips healthy, so the master never boots into a
-    # migration against a not-yet-accepting database.
+    # Gates the app tasks on a ready DB: CI --wait blocks on this until pg_isready
+    # passes, so the master never migrates against a not-yet-accepting postgres.
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 5s
