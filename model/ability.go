@@ -389,3 +389,21 @@ func FixAbility() (int, int, error) {
 	InitChannelCache()
 	return successCount, failCount, nil
 }
+
+// DeleteOrphanedAbilities removes ability rows whose channel_id no longer exists
+// in the channels table. Orphans accumulate when a channel is removed via a path
+// that skips the cascade (raw SQL, older code, partial ops); left in place they
+// make /v1/models advertise + route to dead channels, causing model_not_found.
+// Safe to run any time: it only deletes routes that can never resolve.
+func DeleteOrphanedAbilities() (int64, error) {
+	result := DB.Where("channel_id NOT IN (?)",
+		DB.Model(&Channel{}).Select("id"),
+	).Delete(&Ability{})
+	if result.Error != nil {
+		return 0, result.Error
+	}
+	if result.RowsAffected > 0 {
+		InitChannelCache()
+	}
+	return result.RowsAffected, nil
+}

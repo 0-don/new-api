@@ -220,6 +220,16 @@ func FixChannelsAbilities(c fuego.ContextNoBody) (*dto.Response[dto.FixAbilityDa
 	})
 }
 
+// DeleteOrphanedAbilities removes ability rows pointing at channels that no
+// longer exist (dead routes that cause model_not_found). Idempotent.
+func DeleteOrphanedAbilities(c fuego.ContextNoBody) (*dto.Response[dto.DeletedCountData], error) {
+	deleted, err := model.DeleteOrphanedAbilities()
+	if err != nil {
+		return dto.Fail[dto.DeletedCountData](err.Error())
+	}
+	return dto.Ok(dto.DeletedCountData{Deleted: deleted})
+}
+
 type SearchChannelsData struct {
 	Items      []*model.Channel `json:"items"`
 	Total      int              `json:"total"`

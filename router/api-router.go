@@ -290,6 +290,7 @@ func SetApiRouter(router *gin.Engine, engine *fuego.Engine) {
 		dto.Delete(ch, "/:id", controller.DeleteChannel, option.Path("id", "Channel ID"))
 		dto.PostB(ch, "/batch", controller.DeleteChannelBatch)
 		dto.Post(ch, "/fix", controller.FixChannelsAbilities)
+		dto.Delete(ch, "/orphaned-abilities", controller.DeleteOrphanedAbilities)
 		dto.Get(ch, "/fetch_models/:id", controller.FetchUpstreamModels, option.Path("id", "Channel ID"), dto.Resp[dto.ApiResponse]())
 		dto.PostB(ch, "/fetch_models", controller.FetchModels)
 		dto.Post(ch, "/codex/oauth/start", controller.StartCodexOAuth)
