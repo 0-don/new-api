@@ -8,20 +8,18 @@ name: unorouter-new-api
 #   docker compose -f docker-compose-traefik.yml up -d --wait \
 #     unorouter-new-api-postgres unorouter-new-api-redis
 #   docker compose -f docker-compose-traefik.yml up -d   # backup + logrotate
-# The swarm app stack reaches postgres/redis over the `internal` network (shared
-# external) and Traefik over the `newapi-overlay` overlay.
+# These datastores attach to the same --attachable overlay as the swarm app stack
+# and Traefik. A swarm-scoped service cannot join a local bridge, so a shared
+# bridge would leave the app tasks unable to reach postgres/redis. The overlay is
+# attachable, so these plain-compose containers can join it too and are reachable
+# by container name (unorouter-new-api-postgres / -redis) from the app tasks.
 
 networks:
-  # Overlay shared with Traefik + the swarm app stack. Created --attachable in CI
-  # (docker network create --driver overlay --attachable newapi-overlay). Declared
-  # external here so a `compose up` never tries to recreate it as a bridge.
+  # Overlay shared by Traefik + the swarm app stack + these datastores. Created
+  # --attachable in CI (docker network create --driver overlay --attachable
+  # newapi-overlay). External so `compose up` never recreates it as a bridge.
   newapi-overlay:
     external: true
-  # App<->datastore bridge. name is fixed so the swarm stack can attach to it as
-  # `unorouter-new-api_internal` (compose prefixes with the project name).
-  internal:
-    driver: bridge
-    name: unorouter-new-api_internal
 
 services:
   # Prune the app's own file logs so ~/new-api/logs never fills the disk. new-api
@@ -44,14 +42,14 @@ services:
         sleep 3600;
       done'
     networks:
-      - internal
+      - newapi-overlay
 
   unorouter-new-api-redis:
     image: redis:latest
     container_name: unorouter-new-api-redis
     restart: always
     networks:
-      - internal
+      - newapi-overlay
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -64,7 +62,7 @@ services:
     container_name: unorouter-new-api-postgres
     restart: always
     networks:
-      - internal
+      - newapi-overlay
     ports:
       - 5439:5432
     environment:
@@ -89,7 +87,7 @@ services:
     container_name: unorouter-new-api-pgbackup
     restart: always
     networks:
-      - internal
+      - newapi-overlay
     volumes:
       - ~/duplicati-volume/source/unorouter-new-api-pgbackup:/backups
     depends_on:

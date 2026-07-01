@@ -28,7 +28,6 @@ x-newapi-app: &newapi-app
     start_period: 40s
   networks:
     - newapi-overlay
-    - internal
   # ABSOLUTE paths - `docker stack deploy` does NOT expand `~` (it is not a shell,
   # unlike `docker compose`). Override NEWAPI_HOST_DIR if the runner home differs.
   volumes:
@@ -116,12 +115,9 @@ services:
         - "traefik.http.services.newapi-slave.loadbalancer.healthcheck.timeout=3s"
 
 networks:
-  # Overlay shared with Traefik (created --attachable in CI). Traefik reaches the
-  # swarm task IPs here; a plain local bridge cannot carry swarm-service traffic.
+  # Single overlay for everything: Traefik reaches the app task IPs here, and the
+  # app reaches postgres/redis (plain-compose containers attached to this same
+  # --attachable overlay) by container name. A local bridge cannot carry
+  # swarm-service traffic, so one shared overlay replaces the old internal bridge.
   newapi-overlay:
     external: true
-  # Bridge to the plain-compose datastores (postgres/redis) in
-  # docker-compose-traefik.yml. External so both stacks share the one network.
-  internal:
-    external: true
-    name: unorouter-new-api_internal
