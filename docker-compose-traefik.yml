@@ -14,13 +14,17 @@ services:
     container_name: unorouter-new-api
     restart: always
     command: --log-dir /app/logs
-    # Persist + cap the container stdout log (json-file): 200MB x 5 = ~1GB retained.
-    # The app's own logs in ~/new-api/logs survive deploys; this keeps `docker logs`
-    # from being unbounded or wiped without retention.
+    # Two log sinks (logger.go MultiWriters stdout + --log-dir file):
+    #  1. docker stdout (json-file): 20GB x 5 = ~100GB, self-rotating (oldest
+    #     dropped when the 5th file starts). Hard cap, no maintenance.
+    #  2. the app's own ~/new-api/logs/oneapi-*.log files: NOT self-pruning, so
+    #     the unorouter-new-api-logrotate sidecar below deletes files older than
+    #     LOG_RETENTION_DAYS. Both travel with this compose (survive a migration),
+    #     no host cron to forget. DEBUG=true makes both firehoses.
     logging:
       driver: json-file
       options:
-        max-size: "200m"
+        max-size: "20g"
         max-file: "5"
     healthcheck:
       test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost:3000/"]
@@ -75,6 +79,27 @@ services:
     depends_on:
       - unorouter-new-api-redis
       - unorouter-new-api-postgres
+
+  # Prune the app's own file logs so ~/new-api/logs never fills the disk. new-api
+  # writes a fresh oneapi-<ts>.log every few minutes via --log-dir and never
+  # deletes old ones; this sidecar shares the same volume and removes files older
+  # than LOG_RETENTION_DAYS on an hourly loop. Lives in compose so it survives a
+  # server migration (no host cron to forget). Adjust retention via the env var.
+  unorouter-new-api-logrotate:
+    image: alpine:latest
+    container_name: unorouter-new-api-logrotate
+    restart: always
+    environment:
+      - LOG_RETENTION_DAYS=4
+    volumes:
+      - ~/new-api/logs:/app/logs
+    command: >
+      sh -c 'while true; do
+        find /app/logs -name "oneapi-*.log" -type f -mtime +$${LOG_RETENTION_DAYS} -delete 2>/dev/null || true;
+        sleep 3600;
+      done'
+    networks:
+      - internal
 
   unorouter-new-api-redis:
     image: redis:latest
