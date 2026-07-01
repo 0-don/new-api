@@ -28,11 +28,13 @@ x-newapi-app: &newapi-app
     start_period: 40s
   networks:
     - newapi-overlay
-  # ABSOLUTE paths - `docker stack deploy` does NOT expand `~` (it is not a shell,
-  # unlike `docker compose`). Override NEWAPI_HOST_DIR if the runner home differs.
+  # Bind mounts so both /data and the logs are host-visible for easy access
+  # (ls/tail the logs, rsync /data on migration). `docker stack deploy` does NOT
+  # expand `~`, so the path must be absolute; CI sets NEWAPI_HOST_DIR=$HOME/new-api
+  # instead of hardcoding a user home, so it works on any box/user.
   volumes:
-    - ${NEWAPI_HOST_DIR:-/home/don/new-api}/data:/data
-    - ${NEWAPI_HOST_DIR:-/home/don/new-api}/logs:/app/logs
+    - ${NEWAPI_HOST_DIR}/data:/data
+    - ${NEWAPI_HOST_DIR}/logs:/app/logs
   logging:
     driver: json-file
     options:

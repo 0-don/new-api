@@ -77,6 +77,10 @@ jobs:
       - name: Deploy app stack (rolling)
         run: |
           set -a; . ./.env; set +a
+          # Bind-mount base for /data + logs. $HOME resolves to the runner user's
+          # home on ANY box (no /home/don hardcode in the stack file); the stack
+          # errors loudly if this is unset rather than silently mounting a wrong path.
+          export NEWAPI_HOST_DIR="$HOME/new-api"
           docker stack deploy -c docker-stack-traefik.yml --resolve-image never newapi
 
       # Swarm task containers are named newapi_<service>.<n>.<id>, NOT a fixed
