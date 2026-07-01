@@ -88,8 +88,8 @@ jobs:
           done
           echo "slave did not become healthy in time"; docker service ps newapi_newapi-slave --no-trunc; exit 1
 
-      - name: Docker run debug
-        run: docker compose -f docker-compose-debug.yml up -d --build
+      # - name: Docker run debug
+      #   run: docker compose -f docker-compose-debug.yml up -d --build
 
       - name: remove unused images, containers, volumes, and networks
         run: docker image prune -a -f --filter "until=24h" && docker container prune -f --filter "until=24h" && docker volume prune -f && docker network prune -f --filter "until=24h"
