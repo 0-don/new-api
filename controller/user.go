@@ -186,13 +186,9 @@ func setupLoginAndRedirect(user *model.User, c *gin.Context, redirectURI string)
 	q.Set("code", code)
 	parsed.RawQuery = q.Encode()
 
-	c.JSON(http.StatusOK, dto.ApiResponse{
-		Success: true,
-		Message: "redirect",
-		Data: dto.LoginData{
-			RedirectURL: parsed.String(),
-		},
-	})
+	// Provider callbacks are top-level browser navigations, so 302 the browser to
+	// the frontend callback instead of returning JSON it would just render.
+	c.Redirect(http.StatusFound, parsed.String())
 }
 
 // setupBindAndRedirect generates a one-time exchange code with action=bind and returns a redirect URL.
@@ -214,13 +210,7 @@ func setupBindAndRedirect(user *model.User, c *gin.Context, redirectURI string) 
 	q.Set("code", code)
 	parsed.RawQuery = q.Encode()
 
-	c.JSON(http.StatusOK, dto.ApiResponse{
-		Success: true,
-		Message: "redirect",
-		Data: dto.LoginData{
-			RedirectURL: parsed.String(),
-		},
-	})
+	c.Redirect(http.StatusFound, parsed.String())
 }
 
 // setupOAuthErrorRedirect sends the external frontend a redirect URL carrying
@@ -239,13 +229,7 @@ func setupOAuthErrorRedirect(c *gin.Context, redirectURI, errMsg string) bool {
 	q.Set("error", errMsg)
 	parsed.RawQuery = q.Encode()
 
-	c.JSON(http.StatusOK, dto.ApiResponse{
-		Success: true,
-		Message: "redirect",
-		Data: dto.LoginData{
-			RedirectURL: parsed.String(),
-		},
-	})
+	c.Redirect(http.StatusFound, parsed.String())
 	return true
 }
 
