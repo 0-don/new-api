@@ -799,8 +799,7 @@ func UpdateSelf(c fuego.ContextNoBody) (dto.MessageResponse, error) {
 			currentSetting.SidebarModules = sidebarModulesStr
 		}
 
-		user.SetSetting(currentSetting)
-		if err := user.Update(false); err != nil {
+		if err := model.UpdateUserSetting(user.Id, currentSetting); err != nil {
 			return dto.FailMsg(common.TranslateMessage(ginCtx, "common.update_failed"))
 		}
 
@@ -820,8 +819,7 @@ func UpdateSelf(c fuego.ContextNoBody) (dto.MessageResponse, error) {
 			currentSetting.Language = langStr
 		}
 
-		user.SetSetting(currentSetting)
-		if err := user.Update(false); err != nil {
+		if err := model.UpdateUserSetting(user.Id, currentSetting); err != nil {
 			return dto.FailMsg(common.TranslateMessage(ginCtx, "common.update_failed"))
 		}
 
@@ -829,12 +827,11 @@ func UpdateSelf(c fuego.ContextNoBody) (dto.MessageResponse, error) {
 	}
 
 	var user model.User
-	requestDataBytes, err := json.Marshal(requestData)
+	requestDataBytes, err := common.Marshal(requestData)
 	if err != nil {
 		return dto.FailMsg(common.TranslateMessage(ginCtx, "common.invalid_params"))
 	}
-	err = json.Unmarshal(requestDataBytes, &user)
-	if err != nil {
+	if err = common.Unmarshal(requestDataBytes, &user); err != nil {
 		return dto.FailMsg(common.TranslateMessage(ginCtx, "common.invalid_params"))
 	}
 
@@ -1376,8 +1373,8 @@ func UpdateUserSetting(c fuego.ContextWithBody[dto.UpdateUserSettingRequest]) (d
 		}
 	}
 
-	user.SetSetting(settings)
-	if err := user.Update(false); err != nil {
+	// 更新用户设置
+	if err := model.UpdateUserSetting(user.Id, settings); err != nil {
 		return dto.FailMsg(common.TranslateMessage(ginCtx, "common.update_failed"))
 	}
 

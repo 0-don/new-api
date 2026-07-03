@@ -113,7 +113,8 @@ func SetApiRouter(router *gin.Engine, engine *fuego.Engine) {
 		// /models — user-scoped model list, gated by `models:read` for OAuth agents.
 		selfModels := dto.NewRouter(engine, selfGroup.Group("", middleware.RequireScope("models:read")), "User", secDashboard())
 		dto.Get(selfModels, "/models", controller.GetUserModels)
-		dto.Put(self, "/self", controller.UpdateSelf)
+		selfCriticalUser := dto.NewRouter(engine, selfGroup.Group("", middleware.CriticalRateLimit()), "User", secDashboard())
+		dto.Put(selfCriticalUser, "/self", controller.UpdateSelf)
 		dto.Delete(self, "/self", controller.DeleteSelf)
 		dto.Get(self, "/token", controller.GenerateAccessToken)
 		self.GinGet("/passkey", controller.PasskeyStatus, dto.GinResp[dto.Response[dto.PasskeyStatusData]]())

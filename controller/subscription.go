@@ -91,8 +91,7 @@ func UpdateSubscriptionPreference(c fuego.ContextWithBody[dto.BillingPreferenceR
 	}
 	current := user.GetSetting()
 	current.BillingPreference = pref
-	user.SetSetting(current)
-	if err := user.Update(false); err != nil {
+	if err := model.UpdateUserSetting(user.Id, current); err != nil {
 		return dto.Fail[dto.BillingPreferenceData](err.Error())
 	}
 	return dto.Ok(dto.BillingPreferenceData{BillingPreference: pref})
