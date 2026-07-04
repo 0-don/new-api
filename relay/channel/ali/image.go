@@ -32,7 +32,6 @@ func oaiImage2AliImageRequest(info *relaycommon.RelayInfo, request dto.ImageRequ
 	if imageRequest.Model == "" {
 		imageRequest.Model = request.Model
 	}
-	logger.LogInfo(nil, fmt.Sprintf("[ali-image-debug] origin=%q upstream=%q reqModel=%q mapped=%v final=%q", info.OriginModelName, info.UpstreamModelName, request.Model, info.IsModelMapped, imageRequest.Model))
 	imageRequest.ResponseFormat = request.ResponseFormat
 	if request.Extra != nil {
 		if val, ok := request.Extra["parameters"]; ok {

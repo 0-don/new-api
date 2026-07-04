@@ -19,6 +19,7 @@ import (
 	"github.com/QuantumNous/new-api/types"
 
 	"github.com/gin-gonic/gin"
+	"github.com/tidwall/sjson"
 )
 
 func ImageHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *types.NewAPIError) {
@@ -52,7 +53,20 @@ func ImageHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *type
 		if err != nil {
 			return types.NewErrorWithStatusCode(err, types.ErrorCodeReadRequestBodyFailed, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
 		}
-		requestBody = common.ReaderOnly(storage)
+		// Even in pass-through, the upstream must receive the model-mapped name, not
+		// the published alias (e.g. "z-image-turbo", not "z-image-turbo:free" which
+		// DashScope 404s). Rewrite only the top-level model field, leaving every
+		// other provider-specific field byte-identical.
+		body, err := io.ReadAll(common.ReaderOnly(storage))
+		if err != nil {
+			return types.NewErrorWithStatusCode(err, types.ErrorCodeReadRequestBodyFailed, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
+		}
+		if info.IsModelMapped && info.UpstreamModelName != "" {
+			if mapped, mErr := sjson.SetBytes(body, "model", info.UpstreamModelName); mErr == nil {
+				body = mapped
+			}
+		}
+		requestBody = bytes.NewReader(body)
 	} else {
 		convertedRequest, err := adaptor.ConvertImageRequest(c, info, *request)
 		if err != nil {
