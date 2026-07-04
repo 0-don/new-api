@@ -244,9 +244,14 @@ func perModelRateLimit(c *gin.Context) bool {
 		return true
 	}
 
-	newUser := isNewUser(c)
-	if newUser {
-		successMaxCount = scaleForNewUser(successMaxCount)
+	// The new-user 429 message claims a REDUCED limit, so only use it when
+	// scaling actually lowered the cap (the factor floors at 1, so on 1/min
+	// models an old low-spend account would otherwise see a false claim).
+	newUser := false
+	if isNewUser(c) {
+		scaled := scaleForNewUser(successMaxCount)
+		newUser = scaled < successMaxCount
+		successMaxCount = scaled
 	}
 
 	duration := int64(setting.ModelRequestRateLimitDurationMinutes * 60)
