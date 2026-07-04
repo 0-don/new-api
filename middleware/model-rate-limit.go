@@ -182,41 +182,6 @@ const (
 	perModelRateLimitMaxMark = "perModelRateLimitMax"
 )
 
-// isNewUser reports whether the account should be throttled harder: too young OR
-// too little spent (either configured threshold matches). Unset thresholds = off.
-func isNewUser(c *gin.Context) bool {
-	maxAgeDays := setting.ModelRequestRateLimitNewUserMaxAgeDays
-	maxUsedQuota := setting.ModelRequestRateLimitNewUserMaxUsedQuota
-	if maxAgeDays <= 0 && maxUsedQuota <= 0 {
-		return false
-	}
-	if maxAgeDays > 0 {
-		createdAt := c.GetInt64(string(constant.ContextKeyUserCreatedAt))
-		if createdAt > 0 && (time.Now().Unix()-createdAt)/86400 < int64(maxAgeDays) {
-			return true
-		}
-	}
-	if maxUsedQuota > 0 {
-		if common.GetContextKeyInt(c, constant.ContextKeyUserUsedQuota) < maxUsedQuota {
-			return true
-		}
-	}
-	return false
-}
-
-// scaleForNewUser multiplies a count by the new-user factor (floored at 1).
-func scaleForNewUser(count int) int {
-	factor := setting.ModelRequestRateLimitNewUserFactor
-	if factor >= 1 || count <= 0 {
-		return count
-	}
-	scaled := int(float64(count) * factor)
-	if scaled < 1 {
-		scaled = 1
-	}
-	return scaled
-}
-
 // perModelRateLimit enforces a per-user, per-model success-count cap for the
 // configured `:free` models. Returns false when the request was blocked (already
 // aborted). Paid/small models (not in the map) return true unchanged. On allow it
@@ -244,15 +209,6 @@ func perModelRateLimit(c *gin.Context) bool {
 		return true
 	}
 
-	// The new-user 429 message claims a REDUCED limit, so only use it when
-	// scaling actually lowered the cap (the factor floors at 1, so on 1/min
-	// models an old low-spend account would otherwise see a false claim).
-	newUser := false
-	if isNewUser(c) {
-		scaled := scaleForNewUser(successMaxCount)
-		newUser = scaled < successMaxCount
-		successMaxCount = scaled
-	}
 
 	duration := int64(setting.ModelRequestRateLimitDurationMinutes * 60)
 	userId := strconv.Itoa(c.GetInt("id"))
@@ -281,18 +237,11 @@ func perModelRateLimit(c *gin.Context) bool {
 		c.Header("X-RateLimit-Limit", strconv.Itoa(successMaxCount))
 		c.Header("X-RateLimit-Remaining", "0")
 		c.Header("X-RateLimit-Reset", strconv.FormatInt(time.Now().Unix()+retryAfter, 10))
-		var msg string
-		if newUser {
-			msg = i18n.T(c, "rate_limit.new_user_reached", map[string]any{
-				"Seconds": retryAfter, "Paid": paidName,
-			})
-		} else {
-			msg = i18n.T(c, "rate_limit.free_model_reached", map[string]any{
-				"Model": mr.Model, "Count": successMaxCount,
-				"Minutes": setting.ModelRequestRateLimitDurationMinutes,
-				"Seconds": retryAfter, "Paid": paidName,
-			})
-		}
+		msg := i18n.T(c, "rate_limit.free_model_reached", map[string]any{
+			"Model": mr.Model, "Count": successMaxCount,
+			"Minutes": setting.ModelRequestRateLimitDurationMinutes,
+			"Seconds": retryAfter, "Paid": paidName,
+		})
 		abortWithOpenAiMessage(c, http.StatusTooManyRequests, msg)
 		return false
 	}
