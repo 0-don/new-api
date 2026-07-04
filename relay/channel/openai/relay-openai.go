@@ -16,10 +16,31 @@ import (
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relay/helper"
 	"github.com/QuantumNous/new-api/service"
+	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/QuantumNous/new-api/types"
 
 	"github.com/gin-gonic/gin"
 )
+
+// openAIResponseHasOutput reports whether a non-stream OpenAI chat response
+// carries usable output in any choice: text content, reasoning, a tool call, or
+// a legacy text completion. Mirrors chatChoiceHasOutput in the channel autotest
+// so the live path and the scheduled test agree on "empty".
+func openAIResponseHasOutput(resp *dto.OpenAITextResponse) bool {
+	for i := range resp.Choices {
+		msg := &resp.Choices[i].Message
+		if strings.TrimSpace(msg.StringContent()) != "" {
+			return true
+		}
+		if strings.TrimSpace(msg.GetReasoningContent()) != "" {
+			return true
+		}
+		if len(msg.ParseToolCalls()) > 0 {
+			return true
+		}
+	}
+	return false
+}
 
 func sendStreamData(c *gin.Context, info *relaycommon.RelayInfo, data string, forceFormat bool, thinkToContent bool) error {
 	if data == "" {
@@ -224,11 +245,27 @@ func OpenaiHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Respo
 		return nil, types.WithOpenAIError(*oaiError, resp.StatusCode)
 	}
 
+	contentFiltered := false
 	for _, choice := range simpleResponse.Choices {
 		if choice.FinishReason == constant.FinishReasonContentFilter {
 			common.SetContextKey(c, constant.ContextKeyAdminRejectReason, "openai_finish_reason=content_filter")
+			contentFiltered = true
 			break
 		}
+	}
+
+	// A 200 with no usable output (empty choices / blank content, no tool call)
+	// means the channel is effectively dead (e.g. an upstream quota wall that still
+	// returns 200). Classify it as a channel-empty-response fault so the request
+	// fails over AND the channel auto-disables, matching the scheduled autotest.
+	// Guarded: only OpenAI-format chat, only when the operator flag is on, and never
+	// for a legitimate content-filter refusal (which is a valid non-empty verdict).
+	if info.RelayFormat == types.RelayFormatOpenAI && !contentFiltered &&
+		operation_setting.GetMonitorSetting().DisableOnEmptyResponse &&
+		!openAIResponseHasOutput(&simpleResponse) {
+		return nil, types.NewOpenAIError(
+			fmt.Errorf("upstream returned an empty response (no choices/content)"),
+			types.ErrorCodeChannelEmptyResponse, http.StatusBadGateway)
 	}
 
 	forceFormat := false
