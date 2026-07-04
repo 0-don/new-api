@@ -299,7 +299,6 @@ twofa.code_empty: "Mã xác minh không được để trống"
 rate_limit.reached: "Bạn đã đạt giới hạn yêu cầu: tối đa {{.Max}} yêu cầu trong {{.Minutes}} phút"
 rate_limit.total_reached: "Bạn đã đạt tổng giới hạn yêu cầu: tối đa {{.Max}} yêu cầu trong {{.Minutes}} phút, bao gồm các lần thất bại"
 rate_limit.free_model_reached: "Mô hình miễn phí {{.Model}} đang bị giới hạn ({{.Count}} yêu cầu / {{.Minutes}} phút). Thử lại sau {{.Seconds}}s, hoặc dùng {{.Paid}} trả phí để không bị giới hạn."
-rate_limit.new_user_reached: "Tài khoản mới có giới hạn mô hình miễn phí thấp hơn, sẽ tăng dần theo thời gian sử dụng tài khoản. Thử lại sau {{.Seconds}}s, hoặc dùng {{.Paid}} trả phí."
 rate_limit.email_frequent: "Gửi quá thường xuyên, vui lòng đợi {{.Seconds}} giây"
 rate_limit.email_retry: "Gửi quá thường xuyên, vui lòng thử lại sau"
 

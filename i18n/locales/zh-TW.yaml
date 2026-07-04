@@ -313,7 +313,6 @@ twofa.code_empty: "驗證碼不能為空"
 rate_limit.reached: "您已達到請求數限制：{{.Minutes}}分鐘內最多請求{{.Max}}次"
 rate_limit.total_reached: "您已達到總請求數限制：{{.Minutes}}分鐘內最多請求{{.Max}}次，包括失敗次數"
 rate_limit.free_model_reached: "免費模型 {{.Model}} 已限流（{{.Minutes}} 分鐘內最多 {{.Count}} 次）。請在 {{.Seconds}} 秒後重試，或使用付費的 {{.Paid}} 以不受限制。"
-rate_limit.new_user_reached: "新帳戶的免費模型限額較低，隨著帳戶使用時間增長或產生一定用量後會逐步提高。請在 {{.Seconds}} 秒後重試，或使用付費的 {{.Paid}}。"
 rate_limit.email_frequent: "發送過於頻繁，請等待 {{.Seconds}} 秒後再試"
 rate_limit.email_retry: "發送過於頻繁，請稍後再試"
 

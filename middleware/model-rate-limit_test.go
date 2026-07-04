@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"testing"
 	"time"
 
@@ -19,18 +20,43 @@ import (
 )
 
 func TestGetModelRateLimit(t *testing.T) {
-	require.NoError(t, setting.UpdateModelRequestRateLimitModelsByJSONString(`{"kimi-k2.6:free":[0,20],"glm-4.5-flash:free":[5,15]}`))
+	require.NoError(t, setting.UpdateModelRequestRateLimitModelsByJSONString(`{"kimi-k2.6:free":[0,20],"glm-4.5-flash:free":[5,15],"z-image:free":[0,1,60]}`))
 
-	total, success, found := setting.GetModelRateLimit("kimi-k2.6:free")
+	total, success, window, found := setting.GetModelRateLimit("kimi-k2.6:free")
 	assert.True(t, found)
 	assert.Equal(t, 0, total)
 	assert.Equal(t, 20, success)
+	assert.Equal(t, 0, window) // 2-tuple -> no custom window
 
-	_, _, found = setting.GetModelRateLimit("kimi-k2.6") // paid twin not in map
+	_, _, window, found = setting.GetModelRateLimit("z-image:free")
+	assert.True(t, found)
+	assert.Equal(t, 60, window) // 3-tuple carries the window
+
+	_, _, _, found = setting.GetModelRateLimit("kimi-k2.6") // paid twin not in map
 	assert.False(t, found)
 
-	_, _, found = setting.GetModelRateLimit("gpt-5.5")
+	_, _, _, found = setting.GetModelRateLimit("gpt-5.5")
 	assert.False(t, found)
+}
+
+// A model with a custom windowMinutes gets an independent bucket + longer
+// Retry-After than the 1-min default.
+func TestPerModelRateLimitCustomWindow(t *testing.T) {
+	require.NoError(t, setting.UpdateModelRequestRateLimitModelsByJSONString(`{"slow-model:free":[0,1,60]}`))
+	setting.ModelRequestRateLimitDurationMinutes = 1
+	prevRedis := common.RedisEnabled
+	common.RedisEnabled = false
+	t.Cleanup(func() { common.RedisEnabled = prevRedis })
+	require.NoError(t, i18n.Init())
+
+	c1, _ := newPerModelCtx(920001, common.RoleCommonUser, 0, dto.UserSetting{}, "slow-model:free")
+	assert.True(t, perModelRateLimit(c1))
+	c2, w := newPerModelCtx(920001, common.RoleCommonUser, 0, dto.UserSetting{}, "slow-model:free")
+	assert.False(t, perModelRateLimit(c2))
+	assert.Equal(t, http.StatusTooManyRequests, w.Code)
+	// 60-min window -> Retry-After well above the 60s the default window would give.
+	ra, _ := strconv.Atoi(w.Header().Get("Retry-After"))
+	assert.Greater(t, ra, 60)
 }
 
 // newPerModelCtx builds a POST ctx with the model body + user identity the

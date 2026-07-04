@@ -136,7 +136,7 @@ func (a *TaskAdaptor) ValidateRequestAndSetAction(c *gin.Context, info *relaycom
 }
 
 func (a *TaskAdaptor) BuildRequestURL(info *relaycommon.RelayInfo) (string, error) {
-	if isNewAPIRelay(info.ApiKey) {
+	if isNewAPIRelay(info.ApiKey, a.baseURL) {
 		return fmt.Sprintf("%s/alibailian/api/v1/services/aigc/video-generation/video-synthesis", a.baseURL), nil
 	}
 	return fmt.Sprintf("%s/api/v1/services/aigc/video-generation/video-synthesis", a.baseURL), nil
@@ -206,6 +206,10 @@ func ProcessAliOtherRatios(aliReq *AliVideoRequest) (map[string]float64, error) 
 	otherRatios := make(map[string]float64)
 	aliRatios := map[string]map[string]float64{
 		"wan2.6-i2v": {
+			"720P":  1,
+			"1080P": 1 / 0.6,
+		},
+		"wan2.6-t2v": {
 			"720P":  1,
 			"1080P": 1 / 0.6,
 		},
@@ -529,7 +533,7 @@ func (a *TaskAdaptor) FetchTask(baseUrl, key string, body map[string]any, proxy 
 	}
 
 	uri := fmt.Sprintf("%s/api/v1/tasks/%s", baseUrl, taskID)
-	if isNewAPIRelay(key) {
+	if isNewAPIRelay(key, baseUrl) {
 		uri = fmt.Sprintf("%s/alibailian/api/v1/tasks/%s", baseUrl, taskID)
 	}
 
@@ -625,7 +629,16 @@ func (a *TaskAdaptor) ConvertToOpenAIVideo(task *model.Task) ([]byte, error) {
 	return common.Marshal(openAIResp)
 }
 
-func isNewAPIRelay(apiKey string) bool {
+// isNewAPIRelay reports whether the upstream is ANOTHER new-api instance (which
+// exposes the DashScope task API under a /alibailian prefix) rather than a direct
+// Alibaba DashScope host. A direct DashScope base (dashscope*.aliyuncs.com or a
+// Bailian workspace host *.maas.aliyuncs.com) serves /api/v1/... at the root, so
+// the /alibailian prefix must NOT be added there. Key prefix alone is wrong:
+// Bailian's own keys are `sk-ws-...`.
+func isNewAPIRelay(apiKey, baseURL string) bool {
+	if strings.Contains(baseURL, "aliyuncs.com") {
+		return false
+	}
 	return strings.HasPrefix(apiKey, "sk-")
 }
 

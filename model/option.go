@@ -169,9 +169,6 @@ func InitOptionMap() {
 	common.OptionMap["ModelRequestRateLimitSuccessCount"] = strconv.Itoa(setting.ModelRequestRateLimitSuccessCount)
 	common.OptionMap["ModelRequestRateLimitGroup"] = setting.ModelRequestRateLimitGroup2JSONString()
 	common.OptionMap["ModelRequestRateLimitModels"] = setting.ModelRequestRateLimitModels2JSONString()
-	common.OptionMap["ModelRequestRateLimitNewUserFactor"] = strconv.FormatFloat(setting.ModelRequestRateLimitNewUserFactor, 'f', -1, 64)
-	common.OptionMap["ModelRequestRateLimitNewUserMaxAgeDays"] = strconv.Itoa(setting.ModelRequestRateLimitNewUserMaxAgeDays)
-	common.OptionMap["ModelRequestRateLimitNewUserMaxUsedQuota"] = strconv.Itoa(setting.ModelRequestRateLimitNewUserMaxUsedQuota)
 	common.OptionMap["ModelRatio"] = ratio_setting.ModelRatio2JSONString()
 	common.OptionMap["ModelPrice"] = ratio_setting.ModelPrice2JSONString()
 	common.OptionMap["ModelQuotaType"] = ratio_setting.ModelQuotaType2JSONString()
@@ -618,12 +615,6 @@ func updateOptionMap(key string, value string) (err error) {
 		err = setting.UpdateModelRequestRateLimitGroupByJSONString(value)
 	case "ModelRequestRateLimitModels":
 		err = setting.UpdateModelRequestRateLimitModelsByJSONString(value)
-	case "ModelRequestRateLimitNewUserFactor":
-		setting.ModelRequestRateLimitNewUserFactor, _ = strconv.ParseFloat(value, 64)
-	case "ModelRequestRateLimitNewUserMaxAgeDays":
-		setting.ModelRequestRateLimitNewUserMaxAgeDays, _ = strconv.Atoi(value)
-	case "ModelRequestRateLimitNewUserMaxUsedQuota":
-		setting.ModelRequestRateLimitNewUserMaxUsedQuota, _ = strconv.Atoi(value)
 	case "RetryTimes":
 		common.RetryTimes, _ = strconv.Atoi(value)
 	case "DataExportInterval":

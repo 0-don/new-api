@@ -299,7 +299,6 @@ twofa.code_empty: "Le code de vérification ne peut pas être vide"
 rate_limit.reached: "Vous avez atteint la limite de requêtes : maximum {{.Max}} requêtes en {{.Minutes}} minutes"
 rate_limit.total_reached: "Vous avez atteint la limite totale de requêtes : maximum {{.Max}} requêtes en {{.Minutes}} minutes, y compris les tentatives échouées"
 rate_limit.free_model_reached: "Le modèle gratuit {{.Model}} est limité ({{.Count}} requêtes / {{.Minutes}} min). Réessayez dans {{.Seconds}}s, ou utilisez le modèle payant {{.Paid}} sans limite."
-rate_limit.new_user_reached: "Les nouveaux comptes ont des limites plus basses sur les modèles gratuits ; elles augmentent avec l'ancienneté du compte ou après une certaine utilisation. Réessayez dans {{.Seconds}}s, ou utilisez le modèle payant {{.Paid}}."
 rate_limit.email_frequent: "Envoi trop fréquent, veuillez attendre {{.Seconds}} secondes avant de réessayer"
 rate_limit.email_retry: "Envoi trop fréquent, veuillez réessayer plus tard"
 

@@ -313,7 +313,6 @@ twofa.code_empty: "Verification code cannot be empty"
 rate_limit.reached: "You have reached the request limit: maximum {{.Max}} requests in {{.Minutes}} minutes"
 rate_limit.total_reached: "You have reached the total request limit: maximum {{.Max}} requests in {{.Minutes}} minutes, including failed attempts"
 rate_limit.free_model_reached: "Free model {{.Model}} is rate-limited ({{.Count}} requests / {{.Minutes}} min). Retry in {{.Seconds}}s, or use the paid {{.Paid}} for no limit."
-rate_limit.new_user_reached: "New accounts have lower free-model limits, which increase as your account ages or after some usage. Retry in {{.Seconds}}s, or use the paid {{.Paid}}."
 rate_limit.email_frequent: "Sending too frequently, please wait {{.Seconds}} seconds before trying again"
 rate_limit.email_retry: "Sending too frequently, please try again later"
 

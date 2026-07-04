@@ -61,7 +61,7 @@ func checkRedisRateLimit(ctx context.Context, rdb *redis.Client, key string, max
 	// 如果在时间窗口内已达到限制，拒绝请求
 	subTime := nowTime.Sub(oldTime).Seconds()
 	if int64(subTime) < duration {
-		rdb.Expire(ctx, key, time.Duration(setting.ModelRequestRateLimitDurationMinutes)*time.Minute)
+		rdb.Expire(ctx, key, time.Duration(duration)*time.Second)
 		remaining := duration - int64(subTime)
 		if remaining < 1 {
 			remaining = 1
@@ -73,7 +73,7 @@ func checkRedisRateLimit(ctx context.Context, rdb *redis.Client, key string, max
 }
 
 // 记录Redis请求
-func recordRedisRequest(ctx context.Context, rdb *redis.Client, key string, maxCount int) {
+func recordRedisRequest(ctx context.Context, rdb *redis.Client, key string, maxCount int, duration int64) {
 	// 如果maxCount为0，不记录请求
 	if maxCount == 0 {
 		return
@@ -82,7 +82,7 @@ func recordRedisRequest(ctx context.Context, rdb *redis.Client, key string, maxC
 	now := time.Now().Format(timeFormat)
 	rdb.LPush(ctx, key, now)
 	rdb.LTrim(ctx, key, 0, int64(maxCount-1))
-	rdb.Expire(ctx, key, time.Duration(setting.ModelRequestRateLimitDurationMinutes)*time.Minute)
+	rdb.Expire(ctx, key, time.Duration(duration)*time.Second)
 }
 
 // Redis限流处理器
@@ -138,14 +138,14 @@ func redisRateLimitHandler(duration int64, totalMaxCount, successMaxCount int) g
 
 		// 5. 如果请求成功，记录成功请求
 		if c.Writer.Status() < 400 {
-			recordRedisRequest(ctx, rdb, successKey, successMaxCount)
+			recordRedisRequest(ctx, rdb, successKey, successMaxCount, duration)
 		}
 	}
 }
 
 // 内存限流处理器
 func memoryRateLimitHandler(duration int64, totalMaxCount, successMaxCount int) gin.HandlerFunc {
-	inMemoryRateLimiter.Init(time.Duration(setting.ModelRequestRateLimitDurationMinutes) * time.Minute)
+	inMemoryRateLimiter.Init(inMemoryCleanupHorizon)
 
 	return func(c *gin.Context) {
 		userId := strconv.Itoa(c.GetInt("id"))
@@ -179,8 +179,12 @@ func memoryRateLimitHandler(duration int64, totalMaxCount, successMaxCount int) 
 }
 
 const (
-	perModelRateLimitKeyMark = "perModelRateLimitKey"
-	perModelRateLimitMaxMark = "perModelRateLimitMax"
+	perModelRateLimitKeyMark      = "perModelRateLimitKey"
+	perModelRateLimitMaxMark      = "perModelRateLimitMax"
+	perModelRateLimitDurationMark = "perModelRateLimitDuration"
+	// In-memory cleanup horizon must cover the largest per-model window (Redis
+	// unaffected); entries idle longer than this are evicted.
+	inMemoryCleanupHorizon = 24 * time.Hour
 )
 
 // perModelRateLimit enforces a per-user, per-model success-count cap for the
@@ -202,13 +206,15 @@ func perModelRateLimit(c *gin.Context) bool {
 	if err := common.UnmarshalBodyReusable(c, &mr); err != nil || mr.Model == "" {
 		return true
 	}
-	_, successMaxCount, found := setting.GetModelRateLimit(mr.Model)
+	_, successMaxCount, windowMinutes, found := setting.GetModelRateLimit(mr.Model)
 	if !found || successMaxCount <= 0 {
 		return true
 	}
 
-
-	duration := int64(setting.ModelRequestRateLimitDurationMinutes * 60)
+	if windowMinutes <= 0 {
+		windowMinutes = setting.ModelRequestRateLimitDurationMinutes
+	}
+	duration := int64(windowMinutes * 60)
 	userId := strconv.Itoa(c.GetInt("id"))
 	key := fmt.Sprintf("rateLimit:MODEL:%s:%s", userId, mr.Model)
 
@@ -222,7 +228,7 @@ func perModelRateLimit(c *gin.Context) bool {
 			retryAfter = remaining
 		}
 	} else {
-		inMemoryRateLimiter.Init(time.Duration(setting.ModelRequestRateLimitDurationMinutes) * time.Minute)
+		inMemoryRateLimiter.Init(inMemoryCleanupHorizon)
 		allowed = inMemoryRateLimiter.Request(key+"_check", successMaxCount, duration)
 	}
 
@@ -237,7 +243,7 @@ func perModelRateLimit(c *gin.Context) bool {
 		c.Header("X-RateLimit-Reset", strconv.FormatInt(time.Now().Unix()+retryAfter, 10))
 		msg := i18n.T(c, "rate_limit.free_model_reached", map[string]any{
 			"Model": mr.Model, "Count": successMaxCount,
-			"Minutes": setting.ModelRequestRateLimitDurationMinutes,
+			"Minutes": windowMinutes,
 			"Seconds": retryAfter, "Paid": paidName,
 		})
 		// Surface the rejection in the usage logs (aborting here skips the
@@ -256,6 +262,7 @@ func perModelRateLimit(c *gin.Context) bool {
 
 	c.Set(perModelRateLimitKeyMark, key)
 	c.Set(perModelRateLimitMaxMark, successMaxCount)
+	c.Set(perModelRateLimitDurationMark, duration)
 	return true
 }
 
@@ -267,10 +274,14 @@ func recordPerModelSuccess(c *gin.Context) {
 	if key == "" || maxCount <= 0 || c.Writer.Status() >= 400 {
 		return
 	}
+	duration := c.GetInt64(perModelRateLimitDurationMark)
+	if duration <= 0 {
+		duration = int64(setting.ModelRequestRateLimitDurationMinutes * 60)
+	}
 	if common.RedisEnabled {
-		recordRedisRequest(context.Background(), common.RDB, key, maxCount)
+		recordRedisRequest(context.Background(), common.RDB, key, maxCount, duration)
 	} else {
-		inMemoryRateLimiter.Request(key, maxCount, int64(setting.ModelRequestRateLimitDurationMinutes*60))
+		inMemoryRateLimiter.Request(key, maxCount, duration)
 	}
 }
 

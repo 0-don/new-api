@@ -299,7 +299,6 @@ twofa.code_empty: "検証コードは空にできません"
 rate_limit.reached: "リクエスト制限に達しました：{{.Minutes}}分間で最大{{.Max}}リクエスト"
 rate_limit.total_reached: "総リクエスト制限に達しました：{{.Minutes}}分間で最大{{.Max}}リクエスト（失敗した試行を含む）"
 rate_limit.free_model_reached: "無料モデル {{.Model}} はレート制限中です（{{.Minutes}} 分間に最大 {{.Count}} 回）。{{.Seconds}} 秒後に再試行するか、制限のない有料の {{.Paid}} をご利用ください。"
-rate_limit.new_user_reached: "新規アカウントは無料モデルの上限が低く設定されており、アカウントの利用期間や利用量に応じて引き上げられます。{{.Seconds}} 秒後に再試行するか、有料の {{.Paid}} をご利用ください。"
 rate_limit.email_frequent: "送信頻度が高すぎます。{{.Seconds}}秒後にもう一度お試しください"
 rate_limit.email_retry: "送信頻度が高すぎます。後でもう一度お試しください"
 

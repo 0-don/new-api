@@ -55,10 +55,15 @@ const isValidJSON = (value: string | undefined) => {
       return false
     }
     for (const [, val] of Object.entries(parsed)) {
-      if (!Array.isArray(val) || val.length !== 2) return false
+      // [total, success] or [total, success, windowMinutes]
+      if (!Array.isArray(val) || val.length < 2 || val.length > 3) return false
       if (typeof val[0] !== 'number' || typeof val[1] !== 'number') return false
       if (val[0] < 0 || val[1] < 1) return false
       if (val[0] > 2147483647 || val[1] > 2147483647) return false
+      if (val.length === 3) {
+        if (typeof val[2] !== 'number' || val[2] < 1 || val[2] > 10080)
+          return false
+      }
     }
     return true
   } catch {
@@ -84,9 +89,6 @@ const createRateLimitSchema = (t: (key: string) => string) =>
       .refine(isValidJSON, {
         message: t('Invalid JSON format or values out of allowed range'),
       }),
-    ModelRequestRateLimitNewUserFactor: z.number().min(0).max(1),
-    ModelRequestRateLimitNewUserMaxAgeDays: z.number().min(0),
-    ModelRequestRateLimitNewUserMaxUsedQuota: z.number().min(0),
   })
 
 type RateLimitFormValues = z.infer<ReturnType<typeof createRateLimitSchema>>
@@ -344,85 +346,7 @@ export function RateLimitSection({ defaultValues }: RateLimitSectionProps) {
             )}
           />
 
-          <div className='grid gap-4 md:grid-cols-3'>
-            <FormField
-              control={form.control}
-              name='ModelRequestRateLimitNewUserFactor'
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>{t('New-user limit factor')}</FormLabel>
-                  <FormControl>
-                    <Input
-                      type='number'
-                      min={0}
-                      max={1}
-                      step={0.05}
-                      {...field}
-                      onChange={(e) =>
-                        field.onChange(parseFloat(e.target.value) || 0)
-                      }
-                    />
-                  </FormControl>
-                  <FormDescription>
-                    {t(
-                      'Multiplier applied to per-model limits for new users. 1 = off.'
-                    )}
-                  </FormDescription>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
 
-            <FormField
-              control={form.control}
-              name='ModelRequestRateLimitNewUserMaxAgeDays'
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>{t('New-user max age (days)')}</FormLabel>
-                  <FormControl>
-                    <Input
-                      type='number'
-                      min={0}
-                      step={1}
-                      {...field}
-                      onChange={(e) =>
-                        field.onChange(parseInt(e.target.value) || 0)
-                      }
-                    />
-                  </FormControl>
-                  <FormDescription>
-                    {t('Accounts younger than this are new. 0 = off.')}
-                  </FormDescription>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            <FormField
-              control={form.control}
-              name='ModelRequestRateLimitNewUserMaxUsedQuota'
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>{t('New-user max used quota')}</FormLabel>
-                  <FormControl>
-                    <Input
-                      type='number'
-                      min={0}
-                      step={1}
-                      {...field}
-                      onChange={(e) =>
-                        field.onChange(parseInt(e.target.value) || 0)
-                      }
-                    />
-                  </FormControl>
-                  <FormDescription>
-                    {t('Accounts that used less than this are new. 0 = off.')}
-                  </FormDescription>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-          </div>
         </SettingsForm>
       </Form>
     </SettingsSection>
