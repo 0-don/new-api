@@ -1,9 +1,10 @@
 package ali
 
 import (
-	"github.com/QuantumNous/new-api/i18n"
+	"bytes"
 	"errors"
 	"fmt"
+	"github.com/QuantumNous/new-api/i18n"
 	"io"
 	"net/http"
 	"strings"
@@ -120,6 +121,9 @@ func (a *Adaptor) GetRequestURL(info *relaycommon.RelayInfo) (string, error) {
 			} else {
 				fullRequestURL = fmt.Sprintf("%s/api/v1/services/aigc/multimodal-generation/generation", info.ChannelBaseUrl)
 			}
+		case constant.RelayModeAudioSpeech:
+			// DashScope TTS (qwen3-tts / cosyvoice) is sync multimodal-generation.
+			fullRequestURL = fmt.Sprintf("%s/api/v1/services/aigc/multimodal-generation/generation", info.ChannelBaseUrl)
 		case constant.RelayModeCompletions:
 			fullRequestURL = fmt.Sprintf("%s/compatible-mode/v1/completions", info.ChannelBaseUrl)
 		default:
@@ -150,6 +154,10 @@ func (a *Adaptor) SetupRequestHeader(c *gin.Context, req *http.Header, info *rel
 		if isWanModel(info.OriginModelName) {
 			req.Set("X-DashScope-Async", "enable")
 		}
+		req.Set("Content-Type", "application/json")
+	}
+	if info.RelayMode == constant.RelayModeAudioSpeech {
+		// Sync TTS: JSON body, no X-DashScope-Async.
 		req.Set("Content-Type", "application/json")
 	}
 	return nil
@@ -227,7 +235,15 @@ func (a *Adaptor) ConvertEmbeddingRequest(c *gin.Context, info *relaycommon.Rela
 }
 
 func (a *Adaptor) ConvertAudioRequest(c *gin.Context, info *relaycommon.RelayInfo, request dto.AudioRequest) (io.Reader, error) {
-	//TODO implement me
+	if info.RelayMode == constant.RelayModeAudioSpeech {
+		aliReq := oaiAudio2AliTTSRequest(info, request)
+		data, err := common.Marshal(aliReq)
+		if err != nil {
+			return nil, err
+		}
+		return bytes.NewReader(data), nil
+	}
+	// STT (transcription) not yet wired for DashScope (needs URL-hosted audio).
 	return nil, errors.New(i18n.Translate("common.not_implemented"))
 }
 
@@ -255,6 +271,8 @@ func (a *Adaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycom
 			err, usage = aliImageHandler(a, c, resp, info)
 		case constant.RelayModeImagesEdits:
 			err, usage = aliImageHandler(a, c, resp, info)
+		case constant.RelayModeAudioSpeech:
+			err, usage = aliTTSHandler(c, resp, info)
 		case constant.RelayModeRerank:
 			err, usage = RerankHandler(c, resp, info)
 		default:
