@@ -190,13 +190,10 @@ func perModelRateLimit(c *gin.Context) bool {
 	if !setting.HasModelRateLimits() {
 		return true
 	}
-	// Exempt admin/root (autotest probes, sync, dashboards: limiting them would
-	// falsely 429 channel tests and ban healthy channels) and users an admin
-	// explicitly granted unlimited free models (per-user setting; balance alone
-	// no longer bypasses - the signup grant made every fresh account exempt).
-	if common.GetContextKeyInt(c, constant.ContextKeyUserRole) >= common.RoleAdminUser {
-		return true
-	}
+	// The ONLY exemption is the explicit per-user UnlimitedFreeModels grant.
+	// No role or balance bypass: infrastructure accounts (guest-token owner,
+	// autotest) get the grant instead, so every exemption is visible in the
+	// user's setting and revocable from the admin drawer.
 	if s, ok := common.GetContextKeyType[dto.UserSetting](c, constant.ContextKeyUserSetting); ok && s.UnlimitedFreeModels {
 		return true
 	}

@@ -92,10 +92,11 @@ func TestPerModelRateLimitBypassSemantics(t *testing.T) {
 		assert.True(t, second)
 	})
 
-	t.Run("admin still bypasses", func(t *testing.T) {
-		first, second, _ := run(910004, common.RoleAdminUser, 0, dto.UserSetting{})
+	t.Run("admin no longer bypasses (guest token abuse)", func(t *testing.T) {
+		first, second, w2 := run(910004, common.RoleAdminUser, 0, dto.UserSetting{})
 		assert.True(t, first)
-		assert.True(t, second)
+		assert.False(t, second)
+		assert.Equal(t, http.StatusTooManyRequests, w2.Code)
 	})
 }
 
