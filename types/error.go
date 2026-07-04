@@ -334,11 +334,13 @@ func WithOpenAIError(openAIError OpenAIError, statusCode int, ops ...NewAPIError
 	if openAIError.Type == "" {
 		openAIError.Type = "upstream_error"
 	}
-	// A 400 carrying an upstream credential/account signature (e.g. Google
-	// "API key not valid") is our channel's fault, not the client's request.
-	// Reclassify as a channel error so it fails over to a sibling and disables
-	// the bad channel instead of being treated as a deterministic 400.
-	if statusCode == http.StatusBadRequest && isUpstreamInvalidKey400(openAIError.Message) {
+	// A 400/403 carrying an upstream credential/account signature (Google
+	// "API key not valid", or a reseller's balance/quota exhaustion) is our
+	// channel's fault, not the client's request. Reclassify as a channel error
+	// so it fails over to a sibling and disables the bad channel instead of
+	// being treated as a deterministic client error.
+	if (statusCode == http.StatusBadRequest || statusCode == http.StatusForbidden) &&
+		isUpstreamCredentialFault(openAIError.Message) {
 		code = string(ErrorCodeChannelInvalidKey)
 	}
 	e := &NewAPIError{
@@ -385,25 +387,30 @@ func IsChannelError(err *NewAPIError) bool {
 	return strings.HasPrefix(string(err.errorCode), "channel:")
 }
 
-// upstreamInvalidKeySignatures are message fragments some upstreams emit with an
-// HTTP 400 when the fault is our channel's credential/account, NOT the client's
-// request. Google returns dead/expired keys as 400 "API key not valid" instead
-// of 401, and reseller pre-consume balance failures also surface as 400. These
-// must be classified as channel faults (ErrorCodeChannelInvalidKey) so they fail
-// over to a healthy sibling and auto-disable the bad channel, rather than being
-// treated as a deterministic client error that skips both. Match is lowercase.
-var upstreamInvalidKeySignatures = []string{
+// upstreamCredentialFaultSignatures are message fragments some upstreams emit
+// with an HTTP 400/403 when the fault is our channel's credential/account, NOT
+// the client's request. Google returns dead/expired keys as 400 "API key not
+// valid" instead of 401; resellers surface a drained upstream wallet as 400
+// "insufficient balance" or 403 "用户额度不足 / 剩余额度" (their account, funded by
+// us, is out of money). These must be classified as channel faults
+// (ErrorCodeChannelInvalidKey) so they fail over to a healthy sibling and
+// auto-disable the bad channel, rather than being treated as a deterministic
+// client error that skips both. Match is lowercase; Chinese fragments have no
+// case so they match verbatim.
+var upstreamCredentialFaultSignatures = []string{
 	"api key not valid",
 	"api key expired",
 	"api_key_invalid",
 	"external billing pre-consume: insufficient balance",
+	"用户额度不足",
+	"剩余额度",
 }
 
-// isUpstreamInvalidKey400 reports whether a 400 error message is actually an
+// isUpstreamCredentialFault reports whether an error message is actually an
 // upstream credential/account fault on our side of the channel.
-func isUpstreamInvalidKey400(message string) bool {
+func isUpstreamCredentialFault(message string) bool {
 	lower := strings.ToLower(message)
-	for _, sig := range upstreamInvalidKeySignatures {
+	for _, sig := range upstreamCredentialFaultSignatures {
 		if strings.Contains(lower, sig) {
 			return true
 		}
