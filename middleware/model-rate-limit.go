@@ -13,6 +13,7 @@ import (
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/i18n"
+	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/setting"
 
 	"github.com/gin-gonic/gin"
@@ -239,6 +240,16 @@ func perModelRateLimit(c *gin.Context) bool {
 			"Minutes": setting.ModelRequestRateLimitDurationMinutes,
 			"Seconds": retryAfter, "Paid": paidName,
 		})
+		// Surface the rejection in the usage logs (aborting here skips the
+		// relay's own error logging entirely). DB guard keeps unit tests DB-free.
+		if model.DB != nil {
+			model.RecordErrorLog(c, c.GetInt("id"), 0, mr.Model,
+				c.GetString("token_name"), msg, c.GetInt("token_id"), 0, false,
+				c.GetString("group"), map[string]interface{}{
+					"status_code": http.StatusTooManyRequests,
+					"retry_after": retryAfter,
+				})
+		}
 		abortWithOpenAiMessage(c, http.StatusTooManyRequests, msg)
 		return false
 	}
