@@ -1380,11 +1380,15 @@ func pickAutoTestModel(channel *model.Channel) string {
 			return m
 		}
 	}
-	// No text model. For FREE channels, fall back to an embedding or image model:
-	// testChannel routes them to /v1/embeddings or /v1/images/generations, so a free
-	// embedding-/image-only lane still gets re-checked (and auto-disabled when dead).
-	// Free = no per-call charge to us. Audio/video stay skipped (no test path).
-	if isFreeChannel(channel) {
+	// No text model. Fall back to an embedding or image model: testChannel routes
+	// them to /v1/embeddings or /v1/images/generations, so an embedding-/image-only
+	// lane still gets re-checked (and auto-disabled when dead). Audio/video stay
+	// skipped (no test path). We probe such a channel when EITHER it is free (no
+	// per-call charge to us) OR it is currently auto-disabled: a disabled paid
+	// image/embedding channel must get a recovery probe, else it can never re-enable
+	// (pickAutoTestModel returning "" made performChannelTests skip it before the
+	// enable check -> permanent black hole). PROD-ONLY (fork): recovery-probe branch.
+	if isFreeChannel(channel) || channel.Status == common.ChannelStatusAutoDisabled {
 		for _, m := range channel.GetModels() {
 			m = strings.TrimSpace(m)
 			if m != "" && (isEmbeddingModel(m) || isImageGenModel(m)) {

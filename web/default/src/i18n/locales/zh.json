@@ -1,4 +1,5 @@
 {
+  "{{codes}} also fail over (in auto-retry). Disabling codes that also retry can cause channel flapping; a transient error would ban a channel that would recover on its own.": "{{codes}} 同时会触发故障转移（在自动重试列表中）。禁用同时用于重试的状态码可能导致渠道反复启用与禁用；瞬时错误会封禁一个本可自行恢复的渠道。",
   "translation": {
     "360": "360",
     "1000": "1000",
