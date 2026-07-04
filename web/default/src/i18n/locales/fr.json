@@ -5008,7 +5008,9 @@
     "scheduled_test": "scheduled_test",
     "manual": "manual",
     "by_tag": "by_tag",
-    "balance": "balance"
+    "balance": "balance",
+    "Unlimited free models": "Modèles gratuits illimités",
+    "Exempts this user from the per-model free-model rate limits. Grant sparingly; free upstream quotas are shared.": "Exempte cet utilisateur des limites de débit par modèle sur les modèles gratuits. À accorder avec parcimonie, les quotas gratuits en amont sont partagés."
   },
   "Redirecting to NowPayments checkout...": "Redirection vers le paiement NowPayments...",
   "Crypto (NowPayments)": "Crypto (NowPayments)",

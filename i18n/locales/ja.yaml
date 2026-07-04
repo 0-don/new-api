@@ -968,6 +968,7 @@ ctrl.discord_grant_quota: "管理者({{.Admin}})がDiscord連携ユーザーに�
 ctrl.admin_subtract_quota: "管理者({{.Admin}})がユーザーのクォータを {{.Quota}} 減少しました"
 ctrl.admin_override_quota: "管理者({{.Admin}})がユーザーのクォータを {{.OldQuota}} から {{.NewQuota}} に上書きしました"
 ctrl.admin_set_block_free: "管理者({{.Admin}})がユーザーの「残高ゼロ時に無料モデルをブロック」を {{.Enabled}} に設定しました"
+ctrl.admin_set_unlimited_free: "管理者({{.Admin}})がユーザーの「無料モデル無制限」を {{.Enabled}} に設定しました"
 ctrl.admin_set_usable_groups: "管理者({{.Admin}})がユーザーの利用可能グループを [{{.Groups}}] に設定しました"
 ctrl.auto_block_free_abuse: "残高ゼロでの無料モデル乱用のため、このユーザーの無料モデルを自動的にブロックしました"
 ctrl.automatically_channel_test_finished: "チャネルの自動テストが完了しました"

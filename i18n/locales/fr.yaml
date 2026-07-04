@@ -968,6 +968,7 @@ ctrl.discord_grant_quota: "administrateur ({{.Admin}}) a accordé {{.Quota}} de 
 ctrl.admin_subtract_quota: "administrateur ({{.Admin}}) a retiré {{.Quota}} de quota à l'utilisateur"
 ctrl.admin_override_quota: "administrateur ({{.Admin}}) a remplacé le quota de l'utilisateur de {{.OldQuota}} par {{.NewQuota}}"
 ctrl.admin_set_block_free: "administrateur ({{.Admin}}) a défini «bloquer les modèles gratuits quand le solde est nul» sur {{.Enabled}} pour l'utilisateur"
+ctrl.admin_set_unlimited_free: "administrateur ({{.Admin}}) a défini «modèles gratuits illimités» sur {{.Enabled}} pour l'utilisateur"
 ctrl.admin_set_usable_groups: "administrateur ({{.Admin}}) a défini les groupes utilisables [{{.Groups}}] pour l'utilisateur"
 ctrl.auto_block_free_abuse: "modèles gratuits bloqués automatiquement pour l'utilisateur en raison d'un abus des modèles gratuits avec un solde nul"
 ctrl.automatically_channel_test_finished: "test automatique des canaux terminé"

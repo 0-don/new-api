@@ -5008,7 +5008,9 @@
     "scheduled_test": "scheduled_test",
     "manual": "manual",
     "by_tag": "by_tag",
-    "balance": "balance"
+    "balance": "balance",
+    "Unlimited free models": "Unlimited free models",
+    "Exempts this user from the per-model free-model rate limits. Grant sparingly; free upstream quotas are shared.": "Exempts this user from the per-model free-model rate limits. Grant sparingly; free upstream quotas are shared."
   },
   "Redirecting to NowPayments checkout...": "Redirecting to NowPayments checkout...",
   "Crypto (NowPayments)": "Crypto (NowPayments)",

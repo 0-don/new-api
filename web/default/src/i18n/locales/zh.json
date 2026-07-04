@@ -5008,7 +5008,9 @@
     "scheduled_test": "scheduled_test",
     "manual": "manual",
     "by_tag": "by_tag",
-    "balance": "balance"
+    "balance": "balance",
+    "Unlimited free models": "免费模型不限流",
+    "Exempts this user from the per-model free-model rate limits. Grant sparingly; free upstream quotas are shared.": "免除该用户的免费模型按模型限流。请谨慎授予，上游免费额度为共享资源。"
   },
   "Redirecting to NowPayments checkout...": "正在重定向到 NowPayments 结账...",
   "Crypto (NowPayments)": "加密货币（NowPayments）",

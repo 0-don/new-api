@@ -982,6 +982,7 @@ ctrl.discord_grant_quota: "admin ({{.Admin}}) granted quota {{.Quota}} to a Disc
 ctrl.admin_subtract_quota: "admin ({{.Admin}}) subtracted quota {{.Quota}} from user"
 ctrl.admin_override_quota: "admin ({{.Admin}}) overrode user quota from {{.OldQuota}} to {{.NewQuota}}"
 ctrl.admin_set_block_free: "admin ({{.Admin}}) set block-free-models-when-balance-zero to {{.Enabled}} for user"
+ctrl.admin_set_unlimited_free: "admin ({{.Admin}}) set unlimited-free-models to {{.Enabled}} for user"
 ctrl.admin_set_usable_groups: "admin ({{.Admin}}) set usable groups to [{{.Groups}}] for user"
 ctrl.auto_block_free_abuse: "auto-blocked free models for user due to free-model abuse with zero balance"
 ctrl.automatically_channel_test_finished: "automatically channel test finished"

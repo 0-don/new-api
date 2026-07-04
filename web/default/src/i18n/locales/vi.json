@@ -5008,7 +5008,9 @@
     "scheduled_test": "scheduled_test",
     "manual": "manual",
     "by_tag": "by_tag",
-    "balance": "balance"
+    "balance": "balance",
+    "Unlimited free models": "Mô hình miễn phí không giới hạn",
+    "Exempts this user from the per-model free-model rate limits. Grant sparingly; free upstream quotas are shared.": "Miễn cho người dùng này khỏi giới hạn tốc độ theo mô hình đối với các mô hình miễn phí. Hãy cấp một cách hạn chế; hạn ngạch miễn phí ở thượng nguồn là dùng chung."
   },
   "Redirecting to NowPayments checkout...": "Dang chuyen huong toi trang thanh toan NowPayments...",
   "Crypto (NowPayments)": "Tien ma hoa (NowPayments)",

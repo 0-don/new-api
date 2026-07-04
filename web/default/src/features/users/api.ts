@@ -143,6 +143,21 @@ export async function setUserBlockFree(
 }
 
 /**
+ * Toggle "unlimited free models" (exempt from per-model free rate limits)
+ */
+export async function setUserUnlimitedFree(
+  id: number,
+  enabled: boolean
+): Promise<ApiResponse<Partial<User>>> {
+  const res = await api.post('/api/user/manage', {
+    id,
+    action: 'set_unlimited_free',
+    value: enabled ? 1 : 0,
+  })
+  return res.data
+}
+
+/**
  * Set the per-user usable groups (private routing-group grants)
  */
 export async function setUserUsableGroups(

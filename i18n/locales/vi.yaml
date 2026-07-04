@@ -968,6 +968,7 @@ ctrl.discord_grant_quota: "quản trị viên ({{.Admin}}) đã cấp hạn mứ
 ctrl.admin_subtract_quota: "quản trị viên ({{.Admin}}) đã giảm hạn mức người dùng {{.Quota}}"
 ctrl.admin_override_quota: "quản trị viên ({{.Admin}}) đã thay thế hạn mức người dùng từ {{.OldQuota}} thành {{.NewQuota}}"
 ctrl.admin_set_block_free: "quản trị viên ({{.Admin}}) đã đặt «chặn mô hình miễn phí khi số dư bằng không» thành {{.Enabled}} cho người dùng"
+ctrl.admin_set_unlimited_free: "quản trị viên ({{.Admin}}) đã đặt «mô hình miễn phí không giới hạn» thành {{.Enabled}} cho người dùng"
 ctrl.admin_set_usable_groups: "quản trị viên ({{.Admin}}) đã đặt các nhóm khả dụng [{{.Groups}}] cho người dùng"
 ctrl.auto_block_free_abuse: "đã tự động chặn mô hình miễn phí cho người dùng do lạm dụng mô hình miễn phí khi số dư bằng không"
 ctrl.automatically_channel_test_finished: "kiểm tra kênh tự động đã hoàn tất"

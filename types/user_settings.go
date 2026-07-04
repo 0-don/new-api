@@ -18,6 +18,7 @@ type UserSetting struct {
 	Language                         string  `json:"language,omitempty"`                             // Language 用户语言偏好 (zh, en)
 	BlockFreeWhenNoQuota             bool    `json:"block_free_when_no_quota,omitempty"`             // 余额为零时禁止调用免费模型（手动或自动检测滥用后置位）
 	UsableGroups                     []string `json:"usable_groups,omitempty"`                       // 该用户额外可用的分组（私有分组授权，按用户ID生效，叠加在全局可用分组之上）
+	UnlimitedFreeModels              bool    `json:"unlimited_free_models,omitempty"`                // 管理员授予：免除免费模型的按模型限流
 }
 
 var (

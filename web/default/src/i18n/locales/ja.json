@@ -5008,7 +5008,9 @@
     "scheduled_test": "scheduled_test",
     "manual": "manual",
     "by_tag": "by_tag",
-    "balance": "balance"
+    "balance": "balance",
+    "Unlimited free models": "無料モデル無制限",
+    "Exempts this user from the per-model free-model rate limits. Grant sparingly; free upstream quotas are shared.": "このユーザーを無料モデルのモデル別レート制限から除外します。上流の無料枠は共有のため、付与は慎重に。"
   },
   "Redirecting to NowPayments checkout...": "NowPayments のチェックアウトにリダイレクトしています...",
   "Crypto (NowPayments)": "暗号通貨 (NowPayments)",

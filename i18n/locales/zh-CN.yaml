@@ -982,6 +982,7 @@ ctrl.discord_grant_quota: "管理员({{.Admin}})向已绑定 Discord 的用户�
 ctrl.admin_subtract_quota: "管理员({{.Admin}})减少用户额度 {{.Quota}}"
 ctrl.admin_override_quota: "管理员({{.Admin}})覆盖用户额度从 {{.OldQuota}} 为 {{.NewQuota}}"
 ctrl.admin_set_block_free: "管理员（{{.Admin}}）将用户的「余额为零时禁用免费模型」设置为 {{.Enabled}}"
+ctrl.admin_set_unlimited_free: "管理员（{{.Admin}}）将用户的「免费模型不限流」设置为 {{.Enabled}}"
 ctrl.admin_set_usable_groups: "管理员（{{.Admin}}）将用户的可用分组设置为 [{{.Groups}}]"
 ctrl.auto_block_free_abuse: "因余额为零且滥用免费模型，已自动禁用该用户的免费模型"
 ctrl.automatically_channel_test_finished: "automatically 渠道测试 finished"

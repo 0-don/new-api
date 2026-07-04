@@ -982,6 +982,7 @@ ctrl.discord_grant_quota: "管理員({{.Admin}})向已綁定 Discord 的使用�
 ctrl.admin_subtract_quota: "管理員({{.Admin}})減少使用者額度 {{.Quota}}"
 ctrl.admin_override_quota: "管理員({{.Admin}})覆蓋使用者額度從 {{.OldQuota}} 為 {{.NewQuota}}"
 ctrl.admin_set_block_free: "管理員（{{.Admin}}）將使用者的「餘額為零時停用免費模型」設定為 {{.Enabled}}"
+ctrl.admin_set_unlimited_free: "管理員（{{.Admin}}）將使用者的「免費模型不限流」設定為 {{.Enabled}}"
 ctrl.admin_set_usable_groups: "管理員（{{.Admin}}）將使用者的可用分組設定為 [{{.Groups}}]"
 ctrl.auto_block_free_abuse: "因餘額為零且濫用免費模型，已自動停用該使用者的免費模型"
 ctrl.automatically_channel_test_finished: "automatically 頻道測試 finished"

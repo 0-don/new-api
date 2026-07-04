@@ -1080,6 +1080,17 @@ func ManageUser(c fuego.ContextWithBody[dto.ManageRequest]) (*dto.Response[dto.M
 		model.RecordLog(user.Id, model.LogTypeManage,
 			i18n.T(ginCtx, "ctrl.admin_set_block_free", map[string]any{"Admin": adminName, "Enabled": req.Value == 1}))
 		return dto.Ok(dto.ManageUserData{Role: user.Role, Status: user.Status})
+	case "set_unlimited_free":
+		s := user.GetSetting()
+		s.UnlimitedFreeModels = req.Value == 1
+		user.SetSetting(s)
+		if err := user.Update(false); err != nil {
+			return dto.Fail[dto.ManageUserData](err.Error())
+		}
+		adminName := ginCtx.GetString("username")
+		model.RecordLog(user.Id, model.LogTypeManage,
+			i18n.T(ginCtx, "ctrl.admin_set_unlimited_free", map[string]any{"Admin": adminName, "Enabled": req.Value == 1}))
+		return dto.Ok(dto.ManageUserData{Role: user.Role, Status: user.Status})
 	case "set_usable_groups":
 		// Per-user usable-group grants (private routing groups). Keep only
 		// non-empty groups that exist in GroupRatio so we never store junk.
@@ -1346,6 +1357,14 @@ func UpdateUserSetting(c fuego.ContextWithBody[dto.UpdateUserSettingRequest]) (d
 		UpstreamModelUpdateNotifyEnabled: upstreamModelUpdateNotifyEnabled,
 		AcceptUnsetRatioModel:            req.AcceptUnsetModelRatioModel,
 		RecordIpLog:                      req.RecordIpLog,
+		// Not part of this request DTO; rebuilding the struct without them
+		// silently wiped admin grants and UI prefs on every notify-settings save.
+		SidebarModules:       existingSettings.SidebarModules,
+		BillingPreference:    existingSettings.BillingPreference,
+		Language:             existingSettings.Language,
+		BlockFreeWhenNoQuota: existingSettings.BlockFreeWhenNoQuota,
+		UsableGroups:         existingSettings.UsableGroups,
+		UnlimitedFreeModels:  existingSettings.UnlimitedFreeModels,
 	}
 
 	if req.QuotaWarningType == dto.NotifyTypeWebhook {

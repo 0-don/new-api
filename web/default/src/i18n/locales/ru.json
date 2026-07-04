@@ -5008,7 +5008,9 @@
     "scheduled_test": "scheduled_test",
     "manual": "manual",
     "by_tag": "by_tag",
-    "balance": "balance"
+    "balance": "balance",
+    "Unlimited free models": "Безлимитные бесплатные модели",
+    "Exempts this user from the per-model free-model rate limits. Grant sparingly; free upstream quotas are shared.": "Освобождает этого пользователя от помодельных ограничений частоты для бесплатных моделей. Выдавайте с осторожностью: бесплатные квоты выше по цепочке общие."
   },
   "Redirecting to NowPayments checkout...": "Перенаправление на страницу оплаты NowPayments...",
   "Crypto (NowPayments)": "Крипто (NowPayments)",

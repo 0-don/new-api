@@ -82,6 +82,7 @@ import {
   getUser,
   getGroups,
   setUserBlockFree,
+  setUserUnlimitedFree,
   setUserUsableGroups,
   getPermissionCatalog,
 } from '../api'
@@ -113,6 +114,16 @@ function parseBlockFree(settingJson?: string): boolean {
   }
 }
 
+function parseUnlimitedFree(settingJson?: string): boolean {
+  if (!settingJson) return false
+  try {
+    const parsed = JSON.parse(settingJson)
+    return parsed.unlimited_free_models === true
+  } catch (_e) {
+    return false
+  }
+}
+
 function parseUsableGroups(settingJson?: string): string[] {
   if (!settingJson) return []
   try {
@@ -136,6 +147,8 @@ export function UsersMutateDrawer({
   const [quotaDialogOpen, setQuotaDialogOpen] = useState(false)
   const [blockFree, setBlockFree] = useState(false)
   const [blockFreeSaving, setBlockFreeSaving] = useState(false)
+  const [unlimitedFree, setUnlimitedFree] = useState(false)
+  const [unlimitedFreeSaving, setUnlimitedFreeSaving] = useState(false)
   const [usableGroups, setUsableGroups] = useState<string[]>([])
   const [usableGroupsSaving, setUsableGroupsSaving] = useState(false)
 
@@ -168,6 +181,7 @@ export function UsersMutateDrawer({
         if (result.success && result.data) {
           form.reset(transformUserToFormDefaults(result.data))
           setBlockFree(parseBlockFree(result.data.setting))
+          setUnlimitedFree(parseUnlimitedFree(result.data.setting))
           setUsableGroups(parseUsableGroups(result.data.setting))
         }
       })
@@ -238,6 +252,7 @@ export function UsersMutateDrawer({
     if (result.success && result.data) {
       form.reset(transformUserToFormDefaults(result.data))
       setBlockFree(parseBlockFree(result.data.setting))
+      setUnlimitedFree(parseUnlimitedFree(result.data.setting))
       setUsableGroups(parseUsableGroups(result.data.setting))
     }
     triggerRefresh()
@@ -261,6 +276,27 @@ export function UsersMutateDrawer({
       toast.error(t(ERROR_MESSAGES.UNEXPECTED))
     } finally {
       setBlockFreeSaving(false)
+    }
+  }
+
+  const handleUnlimitedFreeChange = async (checked: boolean) => {
+    if (!currentRow) return
+    setUnlimitedFree(checked)
+    setUnlimitedFreeSaving(true)
+    try {
+      const result = await setUserUnlimitedFree(currentRow.id, checked)
+      if (result.success) {
+        toast.success(t('Setting saved'))
+        triggerRefresh()
+      } else {
+        setUnlimitedFree(!checked)
+        toast.error(result.message || t(ERROR_MESSAGES.UPDATE_FAILED))
+      }
+    } catch (_error) {
+      setUnlimitedFree(!checked)
+      toast.error(t(ERROR_MESSAGES.UNEXPECTED))
+    } finally {
+      setUnlimitedFreeSaving(false)
     }
   }
 
@@ -558,6 +594,23 @@ export function UsersMutateDrawer({
                       checked={blockFree}
                       onCheckedChange={handleBlockFreeChange}
                       disabled={blockFreeSaving}
+                    />
+                  </div>
+
+                  <div className='flex items-start justify-between gap-3 rounded-lg border p-3 sm:items-center sm:p-4'>
+                    <div className='space-y-0.5'>
+                      <Label>{t('Unlimited free models')}</Label>
+                      <p className='text-muted-foreground text-xs sm:text-sm'>
+                        {t(
+                          'Exempts this user from the per-model free-model rate limits. Grant sparingly; free upstream quotas are shared.'
+                        )}
+                      </p>
+                    </div>
+                    <Switch
+                      className='shrink-0'
+                      checked={unlimitedFree}
+                      onCheckedChange={handleUnlimitedFreeChange}
+                      disabled={unlimitedFreeSaving}
                     />
                   </div>
                 </SideDrawerSection>

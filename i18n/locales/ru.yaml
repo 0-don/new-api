@@ -968,6 +968,7 @@ ctrl.discord_grant_quota: "администратор ({{.Admin}}) начисл�
 ctrl.admin_subtract_quota: "администратор ({{.Admin}}) уменьшил квоту пользователя на {{.Quota}}"
 ctrl.admin_override_quota: "администратор ({{.Admin}}) заменил квоту пользователя с {{.OldQuota}} на {{.NewQuota}}"
 ctrl.admin_set_block_free: "администратор ({{.Admin}}) установил «блокировать бесплатные модели при нулевом балансе» в {{.Enabled}} для пользователя"
+ctrl.admin_set_unlimited_free: "администратор ({{.Admin}}) установил «безлимитные бесплатные модели» в {{.Enabled}} для пользователя"
 ctrl.admin_set_usable_groups: "администратор ({{.Admin}}) установил доступные группы [{{.Groups}}] для пользователя"
 ctrl.auto_block_free_abuse: "бесплатные модели автоматически заблокированы для пользователя из-за злоупотребления бесплатными моделями при нулевом балансе"
 ctrl.automatically_channel_test_finished: "автоматическое тестирование каналов завершено"

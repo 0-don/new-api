@@ -30,6 +30,7 @@ const ACTION_MESSAGES: Record<ManageUserAction, string> = {
   delete: 'User deleted successfully',
   add_quota: 'Quota adjusted successfully',
   set_block_free: 'Setting saved',
+  set_unlimited_free: 'Setting saved',
   set_usable_groups: 'Setting saved',
 }
 

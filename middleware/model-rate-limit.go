@@ -11,6 +11,7 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/common/limiter"
 	"github.com/QuantumNous/new-api/constant"
+	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/setting"
 
@@ -24,43 +25,50 @@ const (
 )
 
 // 检查Redis中的请求限制
-func checkRedisRateLimit(ctx context.Context, rdb *redis.Client, key string, maxCount int, duration int64) (bool, error) {
+// retryAfter is the seconds until the oldest recorded request slides out of the
+// window (the real wait), 0 when allowed or unknown (caller falls back to the
+// full window).
+func checkRedisRateLimit(ctx context.Context, rdb *redis.Client, key string, maxCount int, duration int64) (bool, int64, error) {
 	// 如果maxCount为0，表示不限制
 	if maxCount == 0 {
-		return true, nil
+		return true, 0, nil
 	}
 
 	// 获取当前计数
 	length, err := rdb.LLen(ctx, key).Result()
 	if err != nil {
-		return false, err
+		return false, 0, err
 	}
 
 	// 如果未达到限制，允许请求
 	if length < int64(maxCount) {
-		return true, nil
+		return true, 0, nil
 	}
 
 	// 检查时间窗口
 	oldTimeStr, _ := rdb.LIndex(ctx, key, -1).Result()
 	oldTime, err := time.Parse(timeFormat, oldTimeStr)
 	if err != nil {
-		return false, err
+		return false, 0, err
 	}
 
 	nowTimeStr := time.Now().Format(timeFormat)
 	nowTime, err := time.Parse(timeFormat, nowTimeStr)
 	if err != nil {
-		return false, err
+		return false, 0, err
 	}
 	// 如果在时间窗口内已达到限制，拒绝请求
 	subTime := nowTime.Sub(oldTime).Seconds()
 	if int64(subTime) < duration {
 		rdb.Expire(ctx, key, time.Duration(setting.ModelRequestRateLimitDurationMinutes)*time.Minute)
-		return false, nil
+		remaining := duration - int64(subTime)
+		if remaining < 1 {
+			remaining = 1
+		}
+		return false, remaining, nil
 	}
 
-	return true, nil
+	return true, 0, nil
 }
 
 // 记录Redis请求
@@ -85,13 +93,17 @@ func redisRateLimitHandler(duration int64, totalMaxCount, successMaxCount int) g
 
 		// 1. 检查成功请求数限制
 		successKey := fmt.Sprintf("rateLimit:%s:%s", ModelRequestRateLimitSuccessCountMark, userId)
-		allowed, err := checkRedisRateLimit(ctx, rdb, successKey, successMaxCount, duration)
+		allowed, retryAfter, err := checkRedisRateLimit(ctx, rdb, successKey, successMaxCount, duration)
 		if err != nil {
 			fmt.Println("failed to check success request rate limit:", err.Error())
 			abortWithOpenAiMessage(c, http.StatusInternalServerError, "rate_limit_check_failed")
 			return
 		}
 		if !allowed {
+			if retryAfter <= 0 {
+				retryAfter = duration
+			}
+			c.Header("Retry-After", strconv.FormatInt(retryAfter, 10))
 			abortWithOpenAiMessage(c, http.StatusTooManyRequests, i18n.T(c, "rate_limit.reached", map[string]any{"Minutes": setting.ModelRequestRateLimitDurationMinutes, "Count": successMaxCount}))
 			return
 		}
@@ -214,10 +226,13 @@ func perModelRateLimit(c *gin.Context) bool {
 		return true
 	}
 	// Exempt admin/root (autotest probes, sync, dashboards: limiting them would
-	// falsely 429 channel tests and ban healthy channels) and any user with a
-	// positive balance (funded users aren't the swarm; only freeloaders are).
-	if common.GetContextKeyInt(c, constant.ContextKeyUserRole) >= common.RoleAdminUser ||
-		common.GetContextKeyInt(c, constant.ContextKeyUserQuota) > 0 {
+	// falsely 429 channel tests and ban healthy channels) and users an admin
+	// explicitly granted unlimited free models (per-user setting; balance alone
+	// no longer bypasses - the signup grant made every fresh account exempt).
+	if common.GetContextKeyInt(c, constant.ContextKeyUserRole) >= common.RoleAdminUser {
+		return true
+	}
+	if s, ok := common.GetContextKeyType[dto.UserSetting](c, constant.ContextKeyUserSetting); ok && s.UnlimitedFreeModels {
 		return true
 	}
 	var mr ModelRequest
@@ -239,10 +254,13 @@ func perModelRateLimit(c *gin.Context) bool {
 	key := fmt.Sprintf("rateLimit:MODEL:%s:%s", userId, mr.Model)
 
 	allowed := true
+	// Real remaining wait from the limiter (0 = unknown -> full window fallback).
+	var retryAfter int64
 	if common.RedisEnabled {
-		ok, err := checkRedisRateLimit(context.Background(), common.RDB, key, successMaxCount, duration)
+		ok, remaining, err := checkRedisRateLimit(context.Background(), common.RDB, key, successMaxCount, duration)
 		if err == nil {
 			allowed = ok
+			retryAfter = remaining
 		}
 	} else {
 		inMemoryRateLimiter.Init(time.Duration(setting.ModelRequestRateLimitDurationMinutes) * time.Minute)
@@ -251,11 +269,13 @@ func perModelRateLimit(c *gin.Context) bool {
 
 	if !allowed {
 		paidName := strings.TrimSuffix(mr.Model, ":free")
-		retryAfter := setting.ModelRequestRateLimitDurationMinutes * 60
-		c.Header("Retry-After", strconv.Itoa(retryAfter))
+		if retryAfter <= 0 {
+			retryAfter = duration
+		}
+		c.Header("Retry-After", strconv.FormatInt(retryAfter, 10))
 		c.Header("X-RateLimit-Limit", strconv.Itoa(successMaxCount))
 		c.Header("X-RateLimit-Remaining", "0")
-		c.Header("X-RateLimit-Reset", strconv.FormatInt(time.Now().Unix()+int64(retryAfter), 10))
+		c.Header("X-RateLimit-Reset", strconv.FormatInt(time.Now().Unix()+retryAfter, 10))
 		var msg string
 		if newUser {
 			msg = i18n.T(c, "rate_limit.new_user_reached", map[string]any{
