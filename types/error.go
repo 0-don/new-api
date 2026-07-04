@@ -334,14 +334,24 @@ func WithOpenAIError(openAIError OpenAIError, statusCode int, ops ...NewAPIError
 	if openAIError.Type == "" {
 		openAIError.Type = "upstream_error"
 	}
-	// A 400/403 carrying an upstream credential/account signature (Google
-	// "API key not valid", or a reseller's balance/quota exhaustion) is our
-	// channel's fault, not the client's request. Reclassify as a channel error
-	// so it fails over to a sibling and disables the bad channel instead of
-	// being treated as a deterministic client error.
+	// PROD-ONLY (fork): a 400/403 carrying an upstream credential/account
+	// signature (Google "API key not valid", or a reseller's balance/quota
+	// exhaustion) is our channel's fault, not the client's request. Reclassify as
+	// a channel error so it fails over to a sibling and disables the bad channel
+	// instead of being treated as a deterministic client error.
 	if (statusCode == http.StatusBadRequest || statusCode == http.StatusForbidden) &&
 		isUpstreamCredentialFault(openAIError.Message) {
 		code = string(ErrorCodeChannelInvalidKey)
+	}
+	// PROD-ONLY (fork): a 400 whose message says this channel's upstream lacks the
+	// requested model ("Model 'X' is currently unavailable / not found / does not
+	// exist") is a channel-side fault: the SAME request would succeed on a sibling
+	// that hosts the model. Reclassify to channel:model_mapped_error so it fails
+	// over and disables this channel, instead of being skipped as a deterministic
+	// 400. Scoped ONLY to 400 (404 already disables via status code) and ONLY to
+	// model-availability wording, so generic bad-request 400s stay deterministic.
+	if statusCode == http.StatusBadRequest && isUpstreamModelUnavailable(openAIError.Message) {
+		code = string(ErrorCodeChannelModelMappedError)
 	}
 	e := &NewAPIError{
 		RelayError: openAIError,
@@ -411,6 +421,40 @@ var upstreamCredentialFaultSignatures = []string{
 func isUpstreamCredentialFault(message string) bool {
 	lower := strings.ToLower(message)
 	for _, sig := range upstreamCredentialFaultSignatures {
+		if strings.Contains(lower, sig) {
+			return true
+		}
+	}
+	return false
+}
+
+// upstreamModelUnavailableSignatures are message fragments an upstream emits with
+// a 400 when THIS channel does not host the requested model (e.g. "Model 'X' is
+// currently unavailable", "Model 'X' not found. Available models: ...", "... does
+// not exist"). The same request succeeds on a sibling channel that hosts the
+// model, so it is a channel fault, not a client fault. Anchored to model-word
+// wording so it never matches transient infra ("temporarily unavailable",
+// "provider is currently unavailable") or generic bad-request 400s. Match is
+// lowercase.
+var upstreamModelUnavailableSignatures = []string{
+	"is currently unavailable",
+	"not found. available model",
+	"model not found",
+	"model_not_found",
+	"does not exist",
+}
+
+// isUpstreamModelUnavailable reports whether a 400 message means this channel's
+// upstream lacks the requested model (a channel fault, not a client fault).
+func isUpstreamModelUnavailable(message string) bool {
+	lower := strings.ToLower(message)
+	// Guard: transient infra also says "unavailable"; never treat those as a
+	// model-availability fault (they are handled as transient elsewhere).
+	if strings.Contains(lower, "temporarily unavailable") ||
+		strings.Contains(lower, "provider is currently unavailable") {
+		return false
+	}
+	for _, sig := range upstreamModelUnavailableSignatures {
 		if strings.Contains(lower, sig) {
 			return true
 		}
