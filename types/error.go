@@ -397,30 +397,41 @@ func IsChannelError(err *NewAPIError) bool {
 	return strings.HasPrefix(string(err.errorCode), "channel:")
 }
 
-// upstreamCredentialFaultSignatures are message fragments some upstreams emit
-// with an HTTP 400/403 when the fault is our channel's credential/account, NOT
-// the client's request. Google returns dead/expired keys as 400 "API key not
-// valid" instead of 401; resellers surface a drained upstream wallet as 400
-// "insufficient balance" or 403 "用户额度不足 / 剩余额度" (their account, funded by
-// us, is out of money). These must be classified as channel faults
-// (ErrorCodeChannelInvalidKey) so they fail over to a healthy sibling and
-// auto-disable the bad channel, rather than being treated as a deterministic
-// client error that skips both. Match is lowercase; Chinese fragments have no
-// case so they match verbatim.
-var upstreamCredentialFaultSignatures = []string{
+// ChannelFaultKeywordsProvider supplies the admin-editable list of message
+// fragments that mark a 400/403 as THIS channel's fault (dead key, drained
+// upstream wallet, exhausted free quota) rather than the client's request. Set
+// once at startup by the operation_setting package (which owns the config option)
+// to avoid a types<->operation_setting import cycle. Nil until set, in which case
+// isUpstreamCredentialFault falls back to the built-in defaults.
+var ChannelFaultKeywordsProvider func() []string
+
+// defaultChannelFaultKeywords is the fallback list used before the provider is
+// wired (or in unit tests). Google returns dead/expired keys as 400 "API key not
+// valid"; resellers surface a drained upstream wallet as 400 "insufficient
+// balance" or 403 "用户额度不足 / 剩余额度". A match reclassifies to a channel fault so
+// the request fails over AND the bad channel disables. Lowercase; Chinese
+// fragments have no case so they match verbatim.
+var defaultChannelFaultKeywords = []string{
 	"api key not valid",
 	"api key expired",
 	"api_key_invalid",
 	"external billing pre-consume: insufficient balance",
 	"用户额度不足",
 	"剩余额度",
+	// Alibaba Bailian/DashScope free-tier quota exhausted (Stop-on-Exhaust).
+	"the free quota has been exhausted",
+	"免费额度已用尽",
 }
 
 // isUpstreamCredentialFault reports whether an error message is actually an
 // upstream credential/account fault on our side of the channel.
 func isUpstreamCredentialFault(message string) bool {
 	lower := strings.ToLower(message)
-	for _, sig := range upstreamCredentialFaultSignatures {
+	keywords := defaultChannelFaultKeywords
+	if ChannelFaultKeywordsProvider != nil {
+		keywords = ChannelFaultKeywordsProvider()
+	}
+	for _, sig := range keywords {
 		if strings.Contains(lower, sig) {
 			return true
 		}

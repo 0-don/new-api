@@ -39,6 +39,8 @@ func TestWithOpenAIErrorChannelFaultReclassify(t *testing.T) {
 		// Credential faults still reclassify (no regression on the existing branch).
 		{"api_key_not_valid", "API key not valid. Please pass a valid API key.", http.StatusBadRequest, true, ErrorCodeChannelInvalidKey},
 		{"reseller_quota_403", "用户额度不足, 剩余额度: ¥-0.001984", http.StatusForbidden, true, ErrorCodeChannelInvalidKey},
+		// Bailian free-tier exhaustion (verified live body): 403 -> disable + failover.
+		{"bailian_free_quota_403", `The free quota has been exhausted. To continue accessing the model on a paid basis, please complete your payment information (or disable the "use free tier only" mode in the management console if already completed)`, http.StatusForbidden, true, ErrorCodeChannelInvalidKey},
 	}
 
 	for _, tc := range cases {
