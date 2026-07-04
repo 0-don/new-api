@@ -1,5 +1,4 @@
 {
-  "{{codes}} also fail over (in auto-retry). Disabling codes that also retry can cause channel flapping; a transient error would ban a channel that would recover on its own.": "{{codes}} はフェイルオーバーも発生させます（自動リトライ一覧に含まれています）。リトライ対象のコードを無効化の対象にすると、チャンネルが有効化と無効化を繰り返す原因になります。一時的なエラーで、放っておけば回復するチャンネルを禁止してしまいます。",
   "translation": {
     "360": "360",
     "1000": "1000",
@@ -1952,7 +1951,7 @@
     "footer.columns.related.links.oneApi": "1つのAPI",
     "footer.columns.related.title": "関連プロジェクト",
     "footer.defaultCopyright": "すべての権利を留保します。",
-    "footer.new\u0061pi.projectAttributionSuffix": "すべての権利を留保します。プロジェクトコントリビューターにより設計・開発されています。",
+    "footer.newapi.projectAttributionSuffix": "すべての権利を留保します。プロジェクトコントリビューターにより設計・開発されています。",
     "For channels added after May 10, 2025, no need to remove \".\" from model names during deployment": "2025 年 5 月 10 日以降に追加されたチャネルの場合、デプロイ時にモデル名から「.」を削除する必要はありません",
     "For private deployments, format: https://fastgpt.run/api/openapi": "プライベートデプロイメントの場合、形式: https://fastgpt.run/api/openapi",
     "Force a syntactically valid JSON response": "構文的に有効な JSON 応答を強制",

@@ -1,5 +1,4 @@
 {
-  "{{codes}} also fail over (in auto-retry). Disabling codes that also retry can cause channel flapping; a transient error would ban a channel that would recover on its own.": "{{codes}} also fail over (in auto-retry). Disabling codes that also retry can cause channel flapping; a transient error would ban a channel that would recover on its own.",
   "translation": {
     "360": "360",
     "1000": "1000",
@@ -1952,7 +1951,7 @@
     "footer.columns.related.links.oneApi": "One API",
     "footer.columns.related.title": "Related Projects",
     "footer.defaultCopyright": "All rights reserved.",
-    "footer.new\u0061pi.projectAttributionSuffix": "All rights reserved. Designed and developed by the project contributors.",
+    "footer.newapi.projectAttributionSuffix": "All rights reserved. Designed and developed by the project contributors.",
     "For channels added after May 10, 2025, no need to remove \".\" from model names during deployment": "For channels added after May 10, 2025, no need to remove \".\" from model names during deployment",
     "For private deployments, format: https://fastgpt.run/api/openapi": "For private deployments, format: https://fastgpt.run/api/openapi",
     "Force a syntactically valid JSON response": "Force a syntactically valid JSON response",

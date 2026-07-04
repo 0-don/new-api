@@ -273,21 +273,6 @@ export function MonitoringSettingsSection({
     () => parseHttpStatusCodeRules(autoRetryStatusCodes),
     [autoRetryStatusCodes]
   )
-  // A code in BOTH lists fails over AND disables: a transient (429/503) that both
-  // retries and bans yanks a channel that would have worked seconds later, causing
-  // channel flapping. Surface the overlap so operators do not recreate that trap.
-  const disableRetryOverlap = useMemo(() => {
-    if (!autoDisableParsed.ok || !autoRetryParsed.ok) return [] as number[]
-    const inRetry = (code: number) =>
-      autoRetryParsed.ranges.some((r) => code >= r.start && code <= r.end)
-    const hits = new Set<number>()
-    for (const r of autoDisableParsed.ranges) {
-      for (let code = r.start; code <= r.end; code++) {
-        if (inRetry(code)) hits.add(code)
-      }
-    }
-    return Array.from(hits).sort((a, b) => a - b)
-  }, [autoDisableParsed, autoRetryParsed])
 
   const onSubmit = async (values: MonitoringFormValues) => {
     const normalized = normalizeFormValues(values)
@@ -646,14 +631,6 @@ export function MonitoringSettingsSection({
                         </span>
                       )}
                   </FormDescription>
-                  {disableRetryOverlap.length > 0 && (
-                    <p className='text-sm text-amber-600 dark:text-amber-500'>
-                      {t(
-                        '{{codes}} also fail over (in auto-retry). Disabling codes that also retry can cause channel flapping; a transient error would ban a channel that would recover on its own.',
-                        { codes: disableRetryOverlap.join(', ') }
-                      )}
-                    </p>
-                  )}
                   <FormMessage />
                 </FormItem>
               )}

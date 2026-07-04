@@ -1,5 +1,4 @@
 {
-  "{{codes}} also fail over (in auto-retry). Disabling codes that also retry can cause channel flapping; a transient error would ban a channel that would recover on its own.": "{{codes}} также вызывают переключение на резервный канал (они есть в списке повторных попыток). Отключение кодов, которые также повторяются, может приводить к «мерцанию» канала: временная ошибка забанит канал, который восстановился бы сам.",
   "translation": {
     "360": "360",
     "1000": "1000",
@@ -1952,7 +1951,7 @@
     "footer.columns.related.links.oneApi": "Один API",
     "footer.columns.related.title": "Связанные проекты",
     "footer.defaultCopyright": "Все права защищены.",
-    "footer.new\u0061pi.projectAttributionSuffix": "Все права защищены. Разработано участниками проекта.",
+    "footer.newapi.projectAttributionSuffix": "Все права защищены. Разработано участниками проекта.",
     "For channels added after May 10, 2025, no need to remove \".\" from model names during deployment": "Для каналов, добавленных после 10 мая 2025 г., не нужно удалять \".\" из имён моделей при развёртывании",
     "For private deployments, format: https://fastgpt.run/api/openapi": "Для частных развертываний, формат: https://fastgpt.run/api/openapi",
     "Force a syntactically valid JSON response": "Принудительно возвращать синтаксически корректный JSON",
