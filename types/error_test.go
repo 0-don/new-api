@@ -43,6 +43,23 @@ func TestWithOpenAIErrorChannelFaultReclassify(t *testing.T) {
 		{"bailian_free_quota_403", `The free quota has been exhausted. To continue accessing the model on a paid basis, please complete your payment information (or disable the "use free tier only" mode in the management console if already completed)`, http.StatusForbidden, true, ErrorCodeChannelInvalidKey},
 	}
 
+	// The keyword list is a DB-backed option owned by operation_setting; wire the
+	// provider with the shipped seed defaults.
+	prev := ChannelFaultKeywordsProvider
+	ChannelFaultKeywordsProvider = func() []string {
+		return []string{
+			"api key not valid",
+			"api key expired",
+			"api_key_invalid",
+			"external billing pre-consume: insufficient balance",
+			"用户额度不足",
+			"剩余额度",
+			"the free quota has been exhausted",
+			"免费额度已用尽",
+		}
+	}
+	t.Cleanup(func() { ChannelFaultKeywordsProvider = prev })
+
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			e := WithOpenAIError(OpenAIError{Message: tc.message, Code: "unknown_error"}, tc.status)

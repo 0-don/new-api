@@ -30,7 +30,9 @@ var AutomaticDisableKeywords = []string{
 // fault (dead key, drained upstream wallet, exhausted free quota) rather than the
 // client's request. Unlike AutomaticDisableKeywords (disable only), a match here
 // on a 400/403 ALSO reclassifies the error to a channel fault so the SAME request
-// fails over to a healthy sibling. Admin-editable; matched case-insensitively.
+// fails over to a healthy sibling. DB-backed option: this literal only seeds the
+// row on first boot, after that the DB list is authoritative (admin-editable,
+// matched case-insensitively).
 var ChannelFaultKeywords = []string{
 	"api key not valid",
 	"api key expired",
@@ -38,6 +40,7 @@ var ChannelFaultKeywords = []string{
 	"external billing pre-consume: insufficient balance",
 	"用户额度不足",
 	"剩余额度",
+	// Alibaba Bailian/DashScope free-tier quota exhausted (Stop-on-Exhaust).
 	"the free quota has been exhausted",
 	"免费额度已用尽",
 }

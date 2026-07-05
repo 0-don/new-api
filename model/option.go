@@ -218,6 +218,22 @@ func InitOptionMap() {
 
 	common.OptionMapRWMutex.Unlock()
 	loadOptionsFromDatabase()
+	// Keyword lists must live in the DB so the dashboard shows and edits them;
+	// first boot persists the in-code defaults, later boots leave admin edits alone.
+	seedOptionIfMissing("ChannelFaultKeywords", operation_setting.ChannelFaultKeywordsToString())
+}
+
+func seedOptionIfMissing(key string, value string) {
+	if DB == nil {
+		return
+	}
+	var count int64
+	if err := DB.Model(&Option{}).Where(&Option{Key: key}).Count(&count).Error; err != nil || count > 0 {
+		return
+	}
+	if err := UpdateOption(key, value); err != nil {
+		common.SysLog("failed to seed option " + key + ": " + err.Error())
+	}
 }
 
 func loadOptionsFromDatabase() {

@@ -400,38 +400,19 @@ func IsChannelError(err *NewAPIError) bool {
 // ChannelFaultKeywordsProvider supplies the admin-editable list of message
 // fragments that mark a 400/403 as THIS channel's fault (dead key, drained
 // upstream wallet, exhausted free quota) rather than the client's request. Set
-// once at startup by the operation_setting package (which owns the config option)
-// to avoid a types<->operation_setting import cycle. Nil until set, in which case
-// isUpstreamCredentialFault falls back to the built-in defaults.
+// once at startup by the operation_setting package (which owns the DB-backed
+// option and its seed defaults) to avoid a types<->operation_setting import
+// cycle. Nil (not yet wired) means no reclassification.
 var ChannelFaultKeywordsProvider func() []string
-
-// defaultChannelFaultKeywords is the fallback list used before the provider is
-// wired (or in unit tests). Google returns dead/expired keys as 400 "API key not
-// valid"; resellers surface a drained upstream wallet as 400 "insufficient
-// balance" or 403 "用户额度不足 / 剩余额度". A match reclassifies to a channel fault so
-// the request fails over AND the bad channel disables. Lowercase; Chinese
-// fragments have no case so they match verbatim.
-var defaultChannelFaultKeywords = []string{
-	"api key not valid",
-	"api key expired",
-	"api_key_invalid",
-	"external billing pre-consume: insufficient balance",
-	"用户额度不足",
-	"剩余额度",
-	// Alibaba Bailian/DashScope free-tier quota exhausted (Stop-on-Exhaust).
-	"the free quota has been exhausted",
-	"免费额度已用尽",
-}
 
 // isUpstreamCredentialFault reports whether an error message is actually an
 // upstream credential/account fault on our side of the channel.
 func isUpstreamCredentialFault(message string) bool {
-	lower := strings.ToLower(message)
-	keywords := defaultChannelFaultKeywords
-	if ChannelFaultKeywordsProvider != nil {
-		keywords = ChannelFaultKeywordsProvider()
+	if ChannelFaultKeywordsProvider == nil {
+		return false
 	}
-	for _, sig := range keywords {
+	lower := strings.ToLower(message)
+	for _, sig := range ChannelFaultKeywordsProvider() {
 		if strings.Contains(lower, sig) {
 			return true
 		}
