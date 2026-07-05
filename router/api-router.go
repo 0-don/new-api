@@ -133,6 +133,8 @@ func SetApiRouter(router *gin.Engine, engine *fuego.Engine) {
 		dto.PostB(selfTopUp, "/amount", controller.RequestAmount)
 		dto.PostB(selfTopUp, "/stripe/amount", controller.RequestStripeAmount)
 		dto.PostB(selfTopUp, "/nowpayments/amount", controller.RequestNowPaymentsAmount)
+		selfTopUp.GinPost("/waffo/amount", controller.RequestWaffoAmount, dto.GinResp[dto.ApiResponse]())
+		selfTopUp.GinPost("/waffo-pancake/amount", controller.RequestWaffoPancakeAmount, dto.GinResp[dto.ApiResponse]())
 
 		dto.PostB(self, "/aff_transfer", controller.TransferAffQuota)
 		dto.PostB(self, "/setting", controller.UpdateUserSetting)
@@ -153,6 +155,8 @@ func SetApiRouter(router *gin.Engine, engine *fuego.Engine) {
 		dto.PostB(selfCritical, "/stripe/pay", controller.RequestStripePay)
 		dto.PostB(selfCritical, "/creem/pay", controller.RequestCreemPay)
 		dto.PostB(selfCritical, "/nowpayments/pay", controller.RequestNowPaymentsPay)
+		selfCritical.GinPost("/waffo/pay", controller.RequestWaffoPay, dto.GinResp[dto.ApiResponse]())
+		selfCritical.GinPost("/waffo-pancake/pay", controller.RequestWaffoPancakePay, dto.GinResp[dto.ApiResponse]())
 
 		// 2FA routes
 		self2FA := dto.NewRouter(engine, selfGroup, "2FA", secDashboard())
@@ -211,6 +215,8 @@ func SetApiRouter(router *gin.Engine, engine *fuego.Engine) {
 		dto.PostB(subCritical, "/stripe/pay", controller.SubscriptionRequestStripePay)
 		dto.PostB(subCritical, "/creem/pay", controller.SubscriptionRequestCreemPay)
 		dto.PostB(subCritical, "/nowpayments/pay", controller.SubscriptionRequestNowPaymentsPay)
+		dto.PostB(subCritical, "/balance/pay", controller.SubscriptionRequestBalancePay)
+		subCritical.GinPost("/waffo-pancake/pay", controller.SubscriptionRequestWaffoPancakePay, dto.GinResp[dto.ApiResponse]())
 
 		subAdminGroup := apiRouter.Group("/subscription/admin", middleware.AdminAuth())
 		subAdmin := dto.NewRouter(engine, subAdminGroup, "AdminSubscription", secDashboard())
@@ -241,6 +247,8 @@ func SetApiRouter(router *gin.Engine, engine *fuego.Engine) {
 		dto.Post(opt, "/rest_model_ratio", controller.ResetModelRatio)
 		dto.Post(opt, "/migrate_console_setting", controller.MigrateConsoleSetting)
 		opt.GinPost("/payment_compliance", controller.ConfirmPaymentCompliance, dto.GinResp[dto.ApiResponse](), dto.GinBody[controller.PaymentComplianceRequest]())
+		opt.GinPost("/waffo-pancake/subscription-product", controller.CreateWaffoPancakeSubscriptionProduct, dto.GinResp[dto.ApiResponse]())
+		opt.GinGet("/waffo-pancake/subscription-product-options", controller.ListWaffoPancakeSubscriptionProductOptions, dto.GinResp[dto.ApiResponse]())
 
 		// ---- Custom OAuth provider management (root only) ----
 		customOAuthGroup := apiRouter.Group("/custom-oauth-provider", middleware.RootAuth())
@@ -268,6 +276,16 @@ func SetApiRouter(router *gin.Engine, engine *fuego.Engine) {
 		dto.Get(ratioSync, "/channels", controller.GetSyncableChannels)
 		dto.PostB(ratioSync, "/fetch", controller.FetchUpstreamRatios)
 
+		// ---- System maintenance routes (root only) ----
+		systemTaskGroup := apiRouter.Group("/system-task", middleware.RootAuth())
+		systemTaskGroup.POST("/log-cleanup", controller.CreateLogCleanupSystemTask)
+		systemTaskGroup.GET("/current", controller.GetCurrentSystemTask)
+		systemTaskGroup.GET("/list", controller.ListSystemTasks)
+		systemTaskGroup.GET("/:task_id", controller.GetSystemTask)
+
+		systemInfoGroup := apiRouter.Group("/system-info", middleware.RootAuth())
+		systemInfoGroup.GET("/instances", controller.ListSystemInstances)
+
 		registerAuthzRoutes(apiRouter)
 
 		// ---- Channel routes (admin) ----
@@ -277,6 +295,7 @@ func SetApiRouter(router *gin.Engine, engine *fuego.Engine) {
 		dto.GetP(ch, "/search", controller.SearchChannels, dto.PageParams())
 		dto.Get(ch, "/models", controller.ChannelListModels)
 		dto.Get(ch, "/models_enabled", controller.EnabledListModels)
+		ch.GinGet("/ops", controller.GetChannelOps, dto.GinResp[dto.ApiResponse]())
 		dto.Get(ch, "/:id", controller.GetChannel, option.Path("id", "Channel ID"))
 		dto.Get(ch, "/test", controller.TestAllChannels)
 		dto.GetP(ch, "/test/:id", controller.TestChannel, option.Path("id", "Channel ID"))
