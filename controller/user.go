@@ -497,6 +497,11 @@ func GetSelf(c fuego.ContextNoBody) (*dto.Response[dto.UserSelfData], error) {
 
 	userSetting := user.GetSetting()
 
+	hasPassword, err := model.UserHasPassword(id)
+	if err != nil {
+		return dto.Fail[dto.UserSelfData](err.Error())
+	}
+
 	data := dto.UserSelfData{
 		Id:                        user.Id,
 		Username:                  user.Username,
@@ -525,6 +530,7 @@ func GetSelf(c fuego.ContextNoBody) (*dto.Response[dto.UserSelfData], error) {
 		StripeCustomer:            user.StripeCustomer,
 		SidebarModules:            userSetting.SidebarModules,
 		Permissions:               permissions,
+		HasPassword:               hasPassword,
 	}
 
 	// Optional join: only when the user actually has per-user grants. Keeps the

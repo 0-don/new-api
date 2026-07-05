@@ -327,6 +327,20 @@ func GetUserById(id int, selectAll bool) (*User, error) {
 	return &user, err
 }
 
+// UserHasPassword reports whether the user has a local password set, without
+// pulling the hash into memory (OAuth-only accounts have an empty password).
+func UserHasPassword(id int) (bool, error) {
+	if id == 0 {
+		return false, errors.New("id 为空！")
+	}
+	var password string
+	err := DB.Model(&User{}).Select("password").Where("id = ?", id).Scan(&password).Error
+	if err != nil {
+		return false, err
+	}
+	return password != "", nil
+}
+
 func GetUserIdByAffCode(affCode string) (int, error) {
 	if affCode == "" {
 		return 0, errors.New("affCode 为空！")

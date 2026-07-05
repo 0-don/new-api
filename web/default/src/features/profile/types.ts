@@ -81,6 +81,8 @@ export interface UserProfile {
   telegram_id?: string
   /** LinuxDO ID (OAuth) */
   linux_do_id?: string
+  /** Whether a local password is set (false for OAuth-only accounts) */
+  has_password?: boolean
 }
 
 /**
