@@ -1212,7 +1212,11 @@ func EmailBind(c fuego.ContextWithParams[dto.EmailBindParams]) (dto.MessageRespo
 	session := sessions.Default(ginCtx)
 	id, ok := session.Get("id").(int)
 	if !ok || id == 0 {
-		return dto.FailMsg(common.TranslateMessage(ginCtx, "common.not_logged_in"))
+		user, err := model.ValidateAccessToken(ginCtx.Request.Header.Get("Authorization"))
+		if err != nil || user == nil {
+			return dto.FailMsg(common.TranslateMessage(ginCtx, "common.not_logged_in"))
+		}
+		id = user.Id
 	}
 	user := model.User{
 		Id: id,
