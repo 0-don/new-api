@@ -26,11 +26,14 @@ var AutomaticDisableKeywords = []string{
 	"Your account is not authorized",
 }
 
-// DefaultChannelFaultKeywords seeds the DB-backed ChannelFaultKeywords option.
-// Seeding is ledger-tracked (ChannelFaultKeywordsSeeded): a default added here
-// later is appended to the live DB list on the next boot, while keywords an admin
-// deleted stay deleted. The DB list is authoritative at runtime.
-var DefaultChannelFaultKeywords = []string{
+// ChannelFaultKeywords: upstream error fragments that mean THIS channel is at
+// fault (dead key, drained upstream wallet, exhausted free quota) rather than the
+// client's request. Unlike AutomaticDisableKeywords (disable only), a match here
+// on a 400/403 ALSO reclassifies the error to a channel fault so the SAME request
+// fails over to a healthy sibling. Admin-editable option (standard OptionMap
+// flow: these are the code defaults, a saved DB row overrides them); matched
+// case-insensitively.
+var ChannelFaultKeywords = []string{
 	"api key not valid",
 	"api key expired",
 	"api_key_invalid",
@@ -41,13 +44,6 @@ var DefaultChannelFaultKeywords = []string{
 	"the free quota has been exhausted",
 	"免费额度已用尽",
 }
-
-// ChannelFaultKeywords: upstream error fragments that mean THIS channel is at
-// fault (dead key, drained upstream wallet, exhausted free quota) rather than the
-// client's request. Unlike AutomaticDisableKeywords (disable only), a match here
-// on a 400/403 ALSO reclassifies the error to a channel fault so the SAME request
-// fails over to a healthy sibling. Admin-editable, matched case-insensitively.
-var ChannelFaultKeywords = append([]string{}, DefaultChannelFaultKeywords...)
 
 func keywordsToString(kw []string) string {
 	return strings.Join(kw, "\n")

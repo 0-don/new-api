@@ -218,53 +218,6 @@ func InitOptionMap() {
 
 	common.OptionMapRWMutex.Unlock()
 	loadOptionsFromDatabase()
-	seedChannelFaultKeywords()
-}
-
-// seedChannelFaultKeywords keeps the DB-backed keyword list extendable from code
-// without clobbering admin edits: a ledger option records every default ever
-// applied, so only never-seeded defaults are appended to the live list and a
-// keyword the admin deleted stays deleted.
-func seedChannelFaultKeywords() {
-	if DB == nil {
-		return
-	}
-	const ledgerKey = "ChannelFaultKeywordsSeeded"
-	seeded := map[string]bool{}
-	var ledger Option
-	if err := DB.Where(&Option{Key: ledgerKey}).First(&ledger).Error; err == nil {
-		for _, k := range strings.Split(ledger.Value, "\n") {
-			if k = strings.TrimSpace(k); k != "" {
-				seeded[k] = true
-			}
-		}
-	}
-	fresh := []string{}
-	for _, k := range operation_setting.DefaultChannelFaultKeywords {
-		if !seeded[k] {
-			fresh = append(fresh, k)
-		}
-	}
-	if len(fresh) == 0 {
-		return
-	}
-	current := map[string]bool{}
-	merged := append([]string{}, operation_setting.ChannelFaultKeywords...)
-	for _, k := range merged {
-		current[k] = true
-	}
-	for _, k := range fresh {
-		if !current[k] {
-			merged = append(merged, k)
-		}
-	}
-	if err := UpdateOption("ChannelFaultKeywords", strings.Join(merged, "\n")); err != nil {
-		common.SysLog("failed to seed ChannelFaultKeywords: " + err.Error())
-		return
-	}
-	if err := UpdateOption(ledgerKey, strings.Join(operation_setting.DefaultChannelFaultKeywords, "\n")); err != nil {
-		common.SysLog("failed to update ChannelFaultKeywordsSeeded ledger: " + err.Error())
-	}
 }
 
 func loadOptionsFromDatabase() {
