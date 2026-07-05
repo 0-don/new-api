@@ -11,7 +11,6 @@ var ModelList = []string{
 	"gte-rerank-v2",
 	// DashScope TTS (sync multimodal-generation -> output.audio.url)
 	"qwen3-tts-flash",
-	"cosyvoice-v3-flash",
 }
 
 var ChannelName = "ali"
