@@ -328,7 +328,7 @@ func GetUserById(id int, selectAll bool) (*User, error) {
 }
 
 // UserHasPassword reports whether the user has a local password set, without
-// pulling the hash into memory (OAuth-only accounts have an empty password).
+// pulling the hash into memory.
 func UserHasPassword(id int) (bool, error) {
 	if id == 0 {
 		return false, errors.New("id 为空！")

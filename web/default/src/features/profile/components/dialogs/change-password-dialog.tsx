@@ -36,7 +36,6 @@ interface ChangePasswordDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   username: string
-  // False for OAuth-only accounts with no local password: skip the current-password step.
   hasPassword?: boolean
 }
 

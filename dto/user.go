@@ -97,8 +97,7 @@ type UserSelfData struct {
 	StripeCustomer  string `json:"stripe_customer"`
 	SidebarModules  string `json:"sidebar_modules"`
 	Permissions     any    `json:"permissions"`
-	// False for OAuth-only accounts that never set a local password; lets the
-	// client drop the current-password requirement when setting a first password.
+	// False for OAuth-only accounts that never set a local password.
 	HasPassword bool `json:"has_password"`
 	// Only populated when the user has per-user usable-group grants
 	// (setting.usable_groups); absent otherwise so the common path stays cheap.
