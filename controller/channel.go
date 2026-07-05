@@ -29,6 +29,10 @@ func parseStatusFilter(statusParam string) int {
 	switch strings.ToLower(statusParam) {
 	case "enabled", "1":
 		return common.ChannelStatusEnabled
+	case "manual_disabled", "2":
+		return common.ChannelStatusManuallyDisabled
+	case "auto_disabled", "3":
+		return common.ChannelStatusAutoDisabled
 	case "disabled", "0":
 		return 0
 	default:
@@ -44,13 +48,14 @@ func clearChannelInfo(channel *model.Channel) {
 }
 
 func applyChannelStatusFilter(query *gorm.DB, statusFilter int) *gorm.DB {
-	if statusFilter == common.ChannelStatusEnabled {
-		return query.Where("status = ?", common.ChannelStatusEnabled)
-	}
-	if statusFilter == 0 {
+	switch statusFilter {
+	case common.ChannelStatusEnabled, common.ChannelStatusManuallyDisabled, common.ChannelStatusAutoDisabled:
+		return query.Where("status = ?", statusFilter)
+	case 0:
 		return query.Where("status != ?", common.ChannelStatusEnabled)
+	default:
+		return query
 	}
-	return query
 }
 
 func buildChannelListQuery(group string, statusFilter int, typeFilter int) *gorm.DB {

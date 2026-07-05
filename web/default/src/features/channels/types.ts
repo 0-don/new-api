@@ -265,7 +265,7 @@ export type ChannelSortOrder = 'asc' | 'desc'
 export interface GetChannelsParams {
   p?: number
   page_size?: number
-  status?: string // 'enabled', 'disabled', or empty for all
+  status?: string // 'enabled' | 'disabled' (any) | 'manual_disabled' | 'auto_disabled' | empty for all
   type?: number
   group?: string
   id_sort?: boolean
