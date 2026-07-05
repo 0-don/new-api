@@ -77,6 +77,7 @@ type SearchTokensParams struct {
 
 type SearchRedemptionsParams struct {
 	Keyword string `query:"keyword" description:"Search keyword"`
+	Status  string `query:"status" description:"Redemption status filter"`
 }
 
 // ─── Log ────────────────────────────────────────────────────────────

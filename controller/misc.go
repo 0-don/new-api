@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"errors"
 	"fmt"
 	"net/url"
 	"strings"
@@ -254,18 +255,20 @@ func SendPasswordResetEmail(c fuego.ContextWithParams[dto.EmailParams]) (dto.Mes
 	if err := common.Validate.Var(p.Email, "required,email"); err != nil {
 		return dto.FailMsg(common.TranslateMessage(dto.GinCtx(c), "common.invalid_params"))
 	}
-	if !model.IsEmailAlreadyTaken(p.Email) {
-		return dto.FailMsg(common.TranslateMessage(dto.GinCtx(c), "misc.email_not_registered"))
-	}
-	code := common.GenerateVerificationCode(0)
-	common.RegisterVerificationCodeWithKey(p.Email, code, common.PasswordResetPurpose)
-	link := fmt.Sprintf("%s/user/reset?email=%s&token=%s", system_setting.ServerAddress, url.QueryEscape(p.Email), url.QueryEscape(code))
-	subject := common.TranslateMessage(dto.GinCtx(c), "misc.reset_subject", map[string]any{"SystemName": common.SystemName})
-	content := common.TranslateMessage(dto.GinCtx(c), "misc.reset_content", map[string]any{"SystemName": common.SystemName, "Link": link, "Minutes": common.VerificationValidMinutes})
-	err = common.SendEmail(subject, p.Email, content)
-	if err != nil {
+	// Never reveal whether the address is registered: send silently when it is,
+	// stay quiet otherwise, and only log genuine lookup failures.
+	if _, err := model.GetUniqueUserByEmail(p.Email); err == nil {
+		code := common.GenerateVerificationCode(0)
+		common.RegisterVerificationCodeWithKey(p.Email, code, common.PasswordResetPurpose)
+		link := fmt.Sprintf("%s/user/reset?email=%s&token=%s", system_setting.ServerAddress, url.QueryEscape(p.Email), url.QueryEscape(code))
+		subject := common.TranslateMessage(dto.GinCtx(c), "misc.reset_subject", map[string]any{"SystemName": common.SystemName})
+		content := common.TranslateMessage(dto.GinCtx(c), "misc.reset_content", map[string]any{"SystemName": common.SystemName, "Link": link, "Minutes": common.VerificationValidMinutes})
+		if err := common.SendEmail(subject, p.Email, content); err != nil {
+			common.SysError(i18n.Translate("ctrl.failed_to_send_password_reset_email") + err.Error())
+			return dto.FailMsg(common.TranslateMessage(dto.GinCtx(c), "misc.email_send_failed"))
+		}
+	} else if !errors.Is(err, model.ErrEmailNotFound) {
 		common.SysError(i18n.Translate("ctrl.failed_to_send_password_reset_email") + err.Error())
-		return dto.FailMsg(common.TranslateMessage(dto.GinCtx(c), "misc.email_send_failed"))
 	}
 	return dto.Msg("")
 }

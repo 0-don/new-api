@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -165,11 +166,17 @@ func HandleOAuth(c *gin.Context) {
 	// 8. Find or create user
 	user, err := findOrCreateOAuthUser(c, provider, oauthUser, session)
 	if err != nil {
+		if errors.Is(err, model.ErrEmailAlreadyTaken) {
+			common.ApiErrorI18n(c, i18n.MsgUserEmailAlreadyTaken)
+			return
+		}
 		switch err.(type) {
 		case *types.OAuthUserDeletedError:
 			common.ApiErrorI18n(c, "oauth.user_deleted")
 		case *types.OAuthRegistrationDisabledError:
 			common.ApiErrorI18n(c, "user.register_disabled")
+		case *OAuthEmailAlreadyTakenError:
+			common.ApiErrorI18n(c, "user.email_already_taken")
 		default:
 			common.ApiError(c, err)
 		}
@@ -337,7 +344,13 @@ func findOrCreateOAuthUser(c *gin.Context, provider oauth.Provider, oauthUser *o
 		user.DisplayName = provider.GetName() + " User"
 	}
 	if oauthUser.Email != "" {
-		user.Email = oauthUser.Email
+		user.Email = model.NormalizeEmail(oauthUser.Email)
+		if err := model.EnsureEmailAvailable(user.Email, 0); err != nil {
+			if errors.Is(err, model.ErrEmailAlreadyTaken) {
+				return nil, &OAuthEmailAlreadyTakenError{}
+			}
+			return nil, err
+		}
 	}
 	user.Role = common.RoleCommonUser
 	user.Status = common.UserStatusEnabled
@@ -408,6 +421,14 @@ func findOrCreateOAuthUser(c *gin.Context, provider oauth.Provider, oauthUser *o
 	}
 
 	return user, nil
+}
+
+// OAuthEmailAlreadyTakenError is returned when an OAuth signup email collides
+// with an existing account. The other OAuth error types live in the types package.
+type OAuthEmailAlreadyTakenError struct{}
+
+func (e *OAuthEmailAlreadyTakenError) Error() string {
+	return "email is already in use"
 }
 
 // handleOAuthError handles OAuth errors and returns translated message

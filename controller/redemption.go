@@ -26,7 +26,7 @@ func GetAllRedemptions(c fuego.ContextNoBody) (*dto.Response[dto.PageData[*model
 func SearchRedemptions(c fuego.ContextWithParams[dto.SearchRedemptionsParams]) (*dto.Response[dto.PageData[*model.Redemption]], error) {
 	p, _ := dto.ParseParams[dto.SearchRedemptionsParams](c)
 	pageInfo := dto.PageInfo(c)
-	redemptions, total, err := model.SearchRedemptions(p.Keyword, pageInfo.GetStartIdx(), pageInfo.GetPageSize())
+	redemptions, total, err := model.SearchRedemptions(p.Keyword, p.Status, pageInfo.GetStartIdx(), pageInfo.GetPageSize())
 	if err != nil {
 		return dto.FailPage[*model.Redemption](err.Error())
 	}

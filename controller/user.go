@@ -293,6 +293,10 @@ func Register(c fuego.ContextWithBody[dto.RegisterRequest]) (dto.MessageResponse
 	if err != nil {
 		return dto.FailMsg(common.TranslateMessage(ginCtx, "common.invalid_params"))
 	}
+	req.Username = strings.TrimSpace(req.Username)
+	if req.Username == "" {
+		return dto.FailMsg(common.TranslateMessage(ginCtx, "common.invalid_params"))
+	}
 	if err := common.Validate.Struct(&req); err != nil {
 		return dto.FailMsg(common.TranslateMessage(ginCtx, "user.input_invalid", map[string]any{"Error": err.Error()}))
 	}
