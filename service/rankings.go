@@ -134,6 +134,109 @@ var (
 	rankingCache   = map[string]rankingCacheItem{}
 )
 
+type ModelRankingPoint struct {
+	Ts     string `json:"ts"`
+	Label  string `json:"label"`
+	Tokens int64  `json:"tokens"`
+}
+
+type ModelRankingResponse struct {
+	ModelName   string              `json:"model_name"`
+	Period      string              `json:"period"`
+	Rank        int                 `json:"rank"`
+	TotalTokens int64               `json:"total_tokens"`
+	Share       float64             `json:"share"`
+	GrowthPct   float64             `json:"growth_pct"`
+	Series      []ModelRankingPoint `json:"series"`
+}
+
+type modelRankingCacheItem struct {
+	expiresAt time.Time
+	data      *ModelRankingResponse
+}
+
+var (
+	modelRankingCacheMu sync.Mutex
+	modelRankingCache   = map[string]modelRankingCacheItem{}
+)
+
+func GetModelRankingSnapshot(modelName string, period string) (*ModelRankingResponse, error) {
+	config, err := rankingConfig(period)
+	if err != nil {
+		return nil, err
+	}
+
+	cacheKey := config.id + "|" + modelName
+	now := time.Now()
+	modelRankingCacheMu.Lock()
+	if item, ok := modelRankingCache[cacheKey]; ok && now.Before(item.expiresAt) {
+		modelRankingCacheMu.Unlock()
+		return item.data, nil
+	}
+	modelRankingCacheMu.Unlock()
+
+	data, err := buildModelRankingSnapshot(modelName, config, now)
+	if err != nil {
+		return nil, err
+	}
+
+	modelRankingCacheMu.Lock()
+	modelRankingCache[cacheKey] = modelRankingCacheItem{
+		expiresAt: now.Add(rankingCacheTTL),
+		data:      data,
+	}
+	modelRankingCacheMu.Unlock()
+
+	return data, nil
+}
+
+func buildModelRankingSnapshot(modelName string, config rankingPeriodConfig, now time.Time) (*ModelRankingResponse, error) {
+	startTime, endTime := rankingTimeRange(config, now)
+	currentTotals, err := model.GetRankingQuotaTotals(startTime, endTime)
+	if err != nil {
+		return nil, err
+	}
+
+	result := &ModelRankingResponse{
+		ModelName: modelName,
+		Period:    config.id,
+		Series:    []ModelRankingPoint{},
+	}
+
+	totalTokens := sumRankingTokens(currentTotals)
+	for idx, item := range currentTotals {
+		if item.ModelName == modelName {
+			result.Rank = idx + 1
+			result.TotalTokens = item.TotalTokens
+			result.Share = rankingShare(item.TotalTokens, totalTokens)
+			break
+		}
+	}
+
+	if config.hasPrevious {
+		previousStart, previousEnd := previousRankingTimeRange(config, startTime)
+		previousTotals, err := model.GetRankingQuotaTotals(previousStart, previousEnd)
+		if err != nil {
+			return nil, err
+		}
+		result.GrowthPct = rankingGrowthPct(result.TotalTokens, rankingTokenMap(previousTotals)[modelName])
+	}
+
+	buckets, err := model.GetRankingQuotaBucketsForModel(modelName, startTime, endTime, config.bucketSize)
+	if err != nil {
+		return nil, err
+	}
+	for _, item := range buckets {
+		result.Series = append(result.Series, ModelRankingPoint{
+			Ts:     rankingBucketTs(item.Bucket),
+			Label:  rankingBucketLabel(item.Bucket, config),
+			Tokens: item.Tokens,
+		})
+	}
+
+	return result, nil
+}
+
 func GetRankingsSnapshot(period string) (*RankingsResponse, error) {
 	config, err := rankingConfig(period)
 	if err != nil {
