@@ -30,6 +30,7 @@ type PricingModel struct {
 	BillingMode            string                  `json:"billing_mode,omitempty"`
 	BillingExpr            string                  `json:"billing_expr,omitempty"`
 	PricingVersion         string                  `json:"pricing_version,omitempty"`
+	Online                 bool                    `json:"online"`
 }
 
 // PricingVendor mirrors model.PricingVendor for OpenAPI schema generation.

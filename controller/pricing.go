@@ -35,7 +35,12 @@ func filterPricingByUsableGroups(pricing []model.Pricing, usableGroup map[string
 }
 
 func GetPricing(c fuego.ContextNoBody) (dto.PricingData, error) {
-	pricing := model.GetPricing()
+	var pricing []model.Pricing
+	if dto.GinCtx(c).Query("include_offline") == "true" {
+		pricing = model.GetPricingWithOffline()
+	} else {
+		pricing = model.GetPricing()
+	}
 	userId, exists := dto.GinCtx(c).Get("id")
 	usableGroup := map[string]string{}
 	groupRatio := map[string]float64{}
@@ -111,6 +116,7 @@ func toPricingModels(src []model.Pricing) []dto.PricingModel {
 			GridPricing:            m.GridPricing,
 			BillingMode:            m.BillingMode,
 			BillingExpr:            m.BillingExpr,
+			Online:                 m.Online,
 		}
 	}
 	return out

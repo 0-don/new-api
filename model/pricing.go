@@ -40,6 +40,7 @@ type Pricing struct {
 	BillingMode            string                        `json:"billing_mode,omitempty"`
 	BillingExpr            string                        `json:"billing_expr,omitempty"`
 	PricingVersion         string                        `json:"pricing_version,omitempty"`
+	Online                 bool                          `json:"online"`
 }
 
 type PricingVendor struct {
@@ -55,6 +56,12 @@ var (
 	supportedEndpointMap map[string]common.EndpointInfo
 	lastGetPricingTime   time.Time
 	updatePricingLock    sync.Mutex
+
+	// Offline-inclusive variant: separately cached so the hot-path pricingMap is
+	// never poisoned with offline (zero-enabled-channel) models.
+	pricingMapWithOffline         []Pricing
+	lastGetPricingWithOfflineTime time.Time
+	updatePricingWithOfflineLock  sync.Mutex
 
 	// 缓存映射：模型名 -> 启用分组 / 计费类型
 	modelEnableGroups     = make(map[string][]string)
@@ -81,6 +88,18 @@ func GetPricing() []Pricing {
 	return pricingMap
 }
 
+// GetPricingWithOffline returns pricing including offline models (online=false).
+func GetPricingWithOffline() []Pricing {
+	if time.Since(lastGetPricingWithOfflineTime) > time.Minute*1 || len(pricingMapWithOffline) == 0 {
+		updatePricingWithOfflineLock.Lock()
+		defer updatePricingWithOfflineLock.Unlock()
+		if time.Since(lastGetPricingWithOfflineTime) > time.Minute*1 || len(pricingMapWithOffline) == 0 {
+			updatePricingWithOffline()
+		}
+	}
+	return pricingMapWithOffline
+}
+
 func InvalidatePricingCache() {
 	updatePricingLock.Lock()
 	defer updatePricingLock.Unlock()
@@ -88,6 +107,11 @@ func InvalidatePricingCache() {
 	pricingMap = nil
 	vendorsList = nil
 	lastGetPricingTime = time.Time{}
+
+	updatePricingWithOfflineLock.Lock()
+	defer updatePricingWithOfflineLock.Unlock()
+	pricingMapWithOffline = nil
+	lastGetPricingWithOfflineTime = time.Time{}
 }
 
 // GetVendors 返回当前定价接口使用到的供应商信息
@@ -117,6 +141,38 @@ func updatePricing() {
 		common.SysLog(fmt.Sprintf(i18n.Translate("model.getallenableabilitywithchannels_error"), err))
 		return
 	}
+	hasEnabled := make(map[string]bool, len(enableAbilities))
+	for _, ability := range enableAbilities {
+		hasEnabled[ability.Model] = true
+	}
+	pricingMap = buildPricing(enableAbilities, hasEnabled, true)
+	lastGetPricingTime = time.Now()
+}
+
+// updatePricingWithOffline rebuilds the offline-inclusive cache. It reads ALL
+// abilities (enabled+disabled) so models with zero live channels still surface,
+// flagged online=false. It does NOT publish the shared endpoint/vendor globals.
+func updatePricingWithOffline() {
+	allAbilities, err := GetAllAbilityWithChannels()
+	if err != nil {
+		common.SysLog(fmt.Sprintf(i18n.Translate("model.getallenableabilitywithchannels_error"), err))
+		return
+	}
+	hasEnabled := make(map[string]bool)
+	for _, ability := range allAbilities {
+		if ability.Enabled {
+			hasEnabled[ability.Model] = true
+		}
+	}
+	pricingMapWithOffline = buildPricing(allAbilities, hasEnabled, false)
+	lastGetPricingWithOfflineTime = time.Now()
+}
+
+// buildPricing builds the pricing slice from the given ability set. hasEnabled
+// marks which models have at least one live channel (drives the Online flag).
+// When publishGlobals is true it also refreshes the shared vendor/endpoint/
+// group caches; the offline variant passes false so it never clobbers them.
+func buildPricing(enableAbilities []AbilityWithChannel, hasEnabled map[string]bool, publishGlobals bool) []Pricing {
 	// 预加载模型元数据与供应商一次，避免循环查询
 	var allMeta []Model
 	_ = DB.Find(&allMeta).Error
@@ -181,14 +237,16 @@ func updatePricing() {
 	initDefaultVendorMapping(metaMap, vendorMap, enableAbilities)
 
 	// 构建对前端友好的供应商列表
-	vendorsList = make([]PricingVendor, 0, len(vendorMap))
-	for _, v := range vendorMap {
-		vendorsList = append(vendorsList, PricingVendor{
-			ID:          v.Id,
-			Name:        v.Name,
-			Description: v.Description,
-			Icon:        v.Icon,
-		})
+	if publishGlobals {
+		vendorsList = make([]PricingVendor, 0, len(vendorMap))
+		for _, v := range vendorMap {
+			vendorsList = append(vendorsList, PricingVendor{
+				ID:          v.Id,
+				Name:        v.Name,
+				Description: v.Description,
+				Icon:        v.Icon,
+			})
+		}
 	}
 
 	modelGroupsMap := make(map[string]*types.Set[string])
@@ -239,56 +297,60 @@ func updatePricing() {
 		}
 	}
 
-	modelSupportEndpointTypes = make(map[string][]constant.EndpointType)
+	endpointTypesByModel := make(map[string][]constant.EndpointType)
 	for model, endpoints := range modelSupportEndpointsStr {
 		supportedEndpoints := make([]constant.EndpointType, 0)
 		for _, endpointStr := range endpoints {
 			endpointType := constant.EndpointType(endpointStr)
 			supportedEndpoints = append(supportedEndpoints, endpointType)
 		}
-		modelSupportEndpointTypes[model] = supportedEndpoints
+		endpointTypesByModel[model] = supportedEndpoints
 	}
 
-	// 构建全局 supportedEndpointMap（默认 + 自定义覆盖）
-	supportedEndpointMap = make(map[string]common.EndpointInfo)
-	// 1. 默认端点
-	for _, endpoints := range modelSupportEndpointTypes {
-		for _, et := range endpoints {
-			if info, ok := common.GetDefaultEndpointInfo(et); ok {
-				if _, exists := supportedEndpointMap[string(et)]; !exists {
-					supportedEndpointMap[string(et)] = info
+	if publishGlobals {
+		modelSupportEndpointTypes = endpointTypesByModel
+
+		// 构建全局 supportedEndpointMap（默认 + 自定义覆盖）
+		supportedEndpointMap = make(map[string]common.EndpointInfo)
+		// 1. 默认端点
+		for _, endpoints := range endpointTypesByModel {
+			for _, et := range endpoints {
+				if info, ok := common.GetDefaultEndpointInfo(et); ok {
+					if _, exists := supportedEndpointMap[string(et)]; !exists {
+						supportedEndpointMap[string(et)] = info
+					}
+				}
+			}
+		}
+		// 2. 自定义端点（models 表）覆盖默认
+		for _, meta := range metaMap {
+			if strings.TrimSpace(meta.Endpoints) == "" {
+				continue
+			}
+			var raw map[string]interface{}
+			if err := json.Unmarshal([]byte(meta.Endpoints), &raw); err == nil {
+				for k, v := range raw {
+					switch val := v.(type) {
+					case string:
+						supportedEndpointMap[k] = common.EndpointInfo{Path: val, Method: "POST"}
+					case map[string]interface{}:
+						ep := common.EndpointInfo{Method: "POST"}
+						if p, ok := val["path"].(string); ok {
+							ep.Path = p
+						}
+						if m, ok := val["method"].(string); ok {
+							ep.Method = strings.ToUpper(m)
+						}
+						supportedEndpointMap[k] = ep
+					default:
+						// ignore unsupported types
+					}
 				}
 			}
 		}
 	}
-	// 2. 自定义端点（models 表）覆盖默认
-	for _, meta := range metaMap {
-		if strings.TrimSpace(meta.Endpoints) == "" {
-			continue
-		}
-		var raw map[string]interface{}
-		if err := json.Unmarshal([]byte(meta.Endpoints), &raw); err == nil {
-			for k, v := range raw {
-				switch val := v.(type) {
-				case string:
-					supportedEndpointMap[k] = common.EndpointInfo{Path: val, Method: "POST"}
-				case map[string]interface{}:
-					ep := common.EndpointInfo{Method: "POST"}
-					if p, ok := val["path"].(string); ok {
-						ep.Path = p
-					}
-					if m, ok := val["method"].(string); ok {
-						ep.Method = strings.ToUpper(m)
-					}
-					supportedEndpointMap[k] = ep
-				default:
-					// ignore unsupported types
-				}
-			}
-		}
-	}
 
-	pricingMap = make([]Pricing, 0)
+	result := make([]Pricing, 0)
 	for model, groups := range modelGroupsMap {
 		if strings.HasSuffix(model, "[1m]") {
 			continue
@@ -296,7 +358,8 @@ func updatePricing() {
 		pricing := Pricing{
 			ModelName:              model,
 			EnableGroup:            groups.Items(),
-			SupportedEndpointTypes: modelSupportEndpointTypes[model],
+			SupportedEndpointTypes: endpointTypesByModel[model],
+			Online:                 hasEnabled[model],
 		}
 
 		// 补充模型元数据（描述、标签、供应商、状态）
@@ -353,25 +416,27 @@ func updatePricing() {
 				pricing.BillingExpr = expr
 			}
 		}
-		pricingMap = append(pricingMap, pricing)
+		result = append(result, pricing)
 	}
 
 	// 防止大更新后数据不通用
-	if len(pricingMap) > 0 {
-		pricingMap[0].PricingVersion = "5a90f2b86c08bd983a9a2e6d66c255f4eaef9c4bc934386d2b6ae84ef0ff1f1f"
+	if len(result) > 0 {
+		result[0].PricingVersion = "5a90f2b86c08bd983a9a2e6d66c255f4eaef9c4bc934386d2b6ae84ef0ff1f1f"
 	}
 
 	// 刷新缓存映射，供高并发快速查询
-	modelEnableGroupsLock.Lock()
-	modelEnableGroups = make(map[string][]string)
-	modelQuotaTypeMap = make(map[string]int)
-	for _, p := range pricingMap {
-		modelEnableGroups[p.ModelName] = p.EnableGroup
-		modelQuotaTypeMap[p.ModelName] = p.QuotaType
+	if publishGlobals {
+		modelEnableGroupsLock.Lock()
+		modelEnableGroups = make(map[string][]string)
+		modelQuotaTypeMap = make(map[string]int)
+		for _, p := range result {
+			modelEnableGroups[p.ModelName] = p.EnableGroup
+			modelQuotaTypeMap[p.ModelName] = p.QuotaType
+		}
+		modelEnableGroupsLock.Unlock()
 	}
-	modelEnableGroupsLock.Unlock()
 
-	lastGetPricingTime = time.Now()
+	return result
 }
 
 // GetSupportedEndpointMap 返回全局端点到路径的映射

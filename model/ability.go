@@ -41,6 +41,17 @@ func GetAllEnableAbilityWithChannels() ([]AbilityWithChannel, error) {
 	return abilities, err
 }
 
+// GetAllAbilityWithChannels returns every ability row (enabled and disabled) so
+// pricing can surface offline models (those with all channels auto-disabled).
+func GetAllAbilityWithChannels() ([]AbilityWithChannel, error) {
+	var abilities []AbilityWithChannel
+	err := DB.Table("abilities").
+		Select("abilities.*, channels.type as channel_type").
+		Joins("left join channels on abilities.channel_id = channels.id").
+		Scan(&abilities).Error
+	return abilities, err
+}
+
 func GetGroupEnabledModels(group string) []string {
 	var models []string
 	// Find distinct models

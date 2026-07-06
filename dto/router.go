@@ -292,6 +292,11 @@ func TurnstileQuery() func(*fuego.BaseRoute) {
 	return fuego.OptionQuery("turnstile", "Cloudflare Turnstile verification token")
 }
 
+// IncludeOfflineQuery adds the optional "include_offline" pricing query parameter.
+func IncludeOfflineQuery() func(*fuego.BaseRoute) {
+	return fuego.OptionQuery("include_offline", "Include models with no enabled channel (online=false)")
+}
+
 // GinGet registers a raw gin handler GET route.
 func (r *Router) GinGet(path string, handler gin.HandlerFunc, opts ...func(*fuego.BaseRoute)) {
 	if r.engine == nil {
