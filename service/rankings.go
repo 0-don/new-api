@@ -12,7 +12,6 @@ import (
 
 const (
 	rankingCacheTTL         = 5 * time.Minute
-	rankingLeaderboardLimit = 20
 	rankingHistoryLimit     = 10
 	rankingVendorLimit      = 5
 	rankingMoverLimit       = 6
@@ -313,7 +312,7 @@ func buildRankingsSnapshot(config rankingPeriodConfig, now time.Time) (*Rankings
 	movers, droppers := buildRankingMovers(rankedModels)
 
 	return &RankingsResponse{
-		Models:             limitRankedModels(rankedModels, rankingLeaderboardLimit),
+		Models:             rankedModels,
 		Vendors:            vendors,
 		TopMovers:          movers,
 		TopDroppers:        droppers,
@@ -679,13 +678,6 @@ func rankingGrowthPct(current int64, previous int64) float64 {
 
 func roundRankingFloat(value float64) float64 {
 	return math.Round(value*10000) / 10000
-}
-
-func limitRankedModels(rows []RankedModel, limit int) []RankedModel {
-	if limit <= 0 || len(rows) <= limit {
-		return rows
-	}
-	return rows[:limit]
 }
 
 func limitRankingMovers(rows []RankingMover, limit int) []RankingMover {
